@@ -358,7 +358,11 @@ const saltOf = () => {
     return v;
   }
 };
-const catalog = makeCatalog({ which, commands, shellEnv: () => process.env, salt: saltOf });
+// WELD_PRETEND_NO_AGENTS=1: Weld acts as if no agent were installed, to see a new person's first board on a Mac that
+// has them (open --env WELD_PRETEND_NO_AGENTS=1 -a Weld). Agents themselves are untouched.
+const PRETEND_NONE = process.env.WELD_PRETEND_NO_AGENTS === "1";
+const agentWhich = (cmd) => (PRETEND_NONE ? null : which(cmd));
+const catalog = makeCatalog({ which: agentWhich, commands, shellEnv: () => process.env, salt: saltOf });
 // T3 Code's settings: its own, or (a copy of Weld run by the checks) one of the test's, never the person's
 const t3 = makeT3({ dir: process.env.WELD_T3_DIR || (TEST ? file("t3") : path.join(os.homedir(), ".t3", "userdata")), bin: () => file("bin") });
 
@@ -1455,7 +1459,7 @@ function wire() {
     return assets.put(img.toPNG(), { name: `${String(name || "page").replace(/[^\w .-]+/g, "").trim().slice(0, 60) || "page"}.png`, mime: "image/png" });
   });
   ipcMain.on("app:agentsSync", (e) => {
-    e.returnValue = { claude: !!which("claude"), codex: !!which("codex") };
+    e.returnValue = { claude: !!agentWhich("claude"), codex: !!agentWhich("codex") };
   });
   // every agent a thread can run on: installed or not, its modes, whether it is experimental
   ipcMain.on("app:agentListSync", (e) => {
@@ -1553,7 +1557,7 @@ function wire() {
       // (checks start from a board with a thread, a page and a terminal on it)
       seed: TEST && process.env.WELD_SEED === "1",
       test: TEST,
-      agents: { claude: !!which("claude"), codex: !!which("codex") },
+      agents: { claude: !!agentWhich("claude"), codex: !!agentWhich("codex") },
       settings: readJson(file("settings.json"), {}),
       models: { codex: codexModels() },
     };

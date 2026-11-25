@@ -31,6 +31,9 @@ throwaway data folder in test mode (never your own board), runs the steps file, 
 line starting `FAIL`. `test/smoke.mjs` is an example; `test/mock-acp-agent.mjs` is a scripted ACP agent that needs no
 credentials. Pull requests run the same checks in CI.
 
+To see a new person's first board on a Mac that has Claude Code or Codex, open Weld with
+`open --env WELD_PRETEND_NO_AGENTS=1 -a Weld`: it acts as if neither were installed.
+
 A change to how the app looks or behaves is easiest to review with a screenshot or a short recording. If you work with
 a coding agent, point it at [AGENTS.md](AGENTS.md).
 
