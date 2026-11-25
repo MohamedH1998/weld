@@ -2091,6 +2091,7 @@ function follow(editor: Editor, key: string, moved: () => void, problem: (said: 
       let m: { type?: string; doc?: Doc; id?: number };
       try { m = JSON.parse(String(e.data)); } catch { return; }
       if (m.type === "moved") { stopped = true; moved(); return; }
+      if (m.type === "gone") { stopped = true; problem("there is no board at this link"); return; }
       if (m.type === "ack" && inflight && m.id === inflight.id) { base = inflight.doc; inflight = null; backoff = 1000; problem(null); if (ours()) soon(); settled(); return; }
       if (m.type === "error") {
         const e = m as { error?: string; retry?: boolean };

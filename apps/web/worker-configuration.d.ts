@@ -3,6 +3,7 @@
 // Runtime types generated with workerd@1.20261119.1 2026-11-20 nodejs_compat
 interface __BaseEnv_Env {
 	NEW_BOARDS: RateLimit;
+	ALL_NEW_BOARDS: RateLimit;
 	CALLS: RateLimit;
 	BOARD: DurableObjectNamespace<import("./src/server").Board>;
 }

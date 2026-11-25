@@ -12,9 +12,11 @@
   // one per shared board, found by the board's secret key
   "durable_objects": { "bindings": [{ "name": "BOARD", "class_name": "Board" }] },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Board"] }],
-  // per address, per minute: new boards and new links; live connections and agent calls
+  // per address (an IPv6 network as one), per minute: new boards and new links; live connections and agent calls; and
+  // new boards from everyone together, so no number of addresses can keep boards faster than this
   "ratelimits": [
     { "name": "NEW_BOARDS", "namespace_id": "1001", "simple": { "limit": 20, "period": 60 } },
+    { "name": "ALL_NEW_BOARDS", "namespace_id": "1003", "simple": { "limit": 300, "period": 60 } },
     { "name": "CALLS", "namespace_id": "1002", "simple": { "limit": 600, "period": 60 } }
   ]
 }

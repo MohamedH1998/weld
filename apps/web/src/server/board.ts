@@ -22,6 +22,7 @@ const MAX_OPEN = 50;
 
 type Entry = { group: string; spec: Spec };
 const MOVED = "this board has moved to a new link: ask for the new one";
+const NONE = "there is no board at this link";
 
 export class Board extends DurableObject<Env> {
   private doc: Doc | null = null;
@@ -29,12 +30,16 @@ export class Board extends DurableObject<Env> {
   private drawn = new Map<string, Entry>();
   private v = 0;
   private moved = false;
+  /** Made by the server (a new board, or a new link's): a key nobody was given is no board, and keeps nothing. */
+  private made = false;
   private seen: Record<"agent" | "writes", number[]> = { agent: [], writes: [] };
 
   private async load() {
     if (this.doc) return;
-    const got = await this.ctx.storage.get<unknown>(["doc", "drawn", "v", "moved", "moving"]);
+    const got = await this.ctx.storage.get<unknown>(["doc", "drawn", "v", "moved", "moving", "made", "seen"]);
     this.moved = got.get("moved") === true;
+    // (a board kept before boards were marked made is one: it has something stored)
+    this.made = got.get("made") === true || got.has("v") || got.has("seen") || this.moved;
     // a move cut short (the board's server stopped mid-way) is undone: the board stays at this link, and whoever asked for
     // the new one asks again (the half-made copy sits at a key nobody was given, and is cleared with the idle ones)
     if (got.get("moving") && !this.moved) await this.ctx.storage.delete("moving");
@@ -74,6 +79,16 @@ export class Board extends DurableObject<Env> {
   private bytes: { t: number; n: number }[] = [];
   private ready() {
     if (this.moved) throw new Error(MOVED);
+    if (!this.made) throw new Error(NONE);
+  }
+  /** A new, empty board, made by the server: from now on it is one (and is cleared like any other once idle). */
+  async make() {
+    await this.load();
+    if (this.made) return;
+    const now = Date.now();
+    await this.ctx.storage.put({ made: true, seen: now });
+    await this.ctx.storage.setAlarm(now + IDLE);
+    this.made = true;
   }
 
   /** A browser opening the board: the document now, then every change as it happens. */
@@ -83,6 +98,11 @@ export class Board extends DurableObject<Env> {
     if (this.ctx.getWebSockets().length >= MAX_OPEN) return new Response("this board is open in too many places", { status: 429 });
     const [client, server] = Object.values(new WebSocketPair()) as [WebSocket, WebSocket];
     this.ctx.acceptWebSocket(server);
+    if (!this.moved && !this.made) {
+      server.send(JSON.stringify({ type: "gone" }));
+      server.close(4004, "no such board");
+      return new Response(null, { status: 101, webSocket: client });
+    }
     if (!this.moved) await this.used();
     if (this.moved) {
       server.send(JSON.stringify({ type: "moved" }));
@@ -98,6 +118,7 @@ export class Board extends DurableObject<Env> {
     if (m.type !== "put" || !m.doc || typeof m.doc !== "object") return;
     await this.load();
     if (this.moved) return ws.send(JSON.stringify({ type: "moved" }));
+    if (!this.made) return ws.send(JSON.stringify({ type: "gone" }));
     try {
       this.spend("writes");
       this.spendBytes(msg.length);
@@ -129,18 +150,23 @@ export class Board extends DurableObject<Env> {
     // (a board open somewhere is in use, whatever the date)
     if (this.ctx.getWebSockets().length) return void (await this.ctx.storage.setAlarm(Date.now() + IDLE));
     if (seen && Date.now() - seen < IDLE) return void (await this.ctx.storage.setAlarm(seen + IDLE));
+    // (a board that moved keeps saying so, whatever its age: its old link must never become a board again)
+    const to = this.moved ? await this.ctx.storage.get<string>("movedTo") : undefined;
     await this.ctx.storage.deleteAll();
+    if (this.moved) await this.ctx.storage.put({ moved: true, ...(to ? { movedTo: to } : {}) });
     this.doc = null;
   }
 
   /** Take over a board's contents (a new link's board, given the old one's). */
   async adopt(doc: Doc, drawn: [string, Entry][], from?: string) {
     await this.load();
-    this.ready();
+    if (this.moved) throw new Error(MOVED);
     // (a board takes over another's only once, unless it is that same board handing over again after a lost answer)
     const was = await this.ctx.storage.get<string>("from");
     if ((this.doc!.order.length || this.drawn.size || this.v) && !(from && was === from)) throw new Error("that link is already in use");
     if (from) await this.ctx.storage.put("from", from);
+    await this.ctx.storage.put("made", true);
+    this.made = true;
     await this.save(cleanDoc(doc), new Map(drawn));
   }
   /**

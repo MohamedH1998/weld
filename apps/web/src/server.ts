@@ -34,17 +34,29 @@ async function readUpTo(req: Request, max: number): Promise<string | null> {
   for (const p of parts) { all.set(p, at); at += p.byteLength; }
   return new TextDecoder().decode(all);
 }
+/** Who is asking, for their allowance: an IPv4 address, or an IPv6 network (/64: one household or host can hold all of one). */
+const who = (req: Request) => {
+  const ip = req.headers.get("cf-connecting-ip") ?? "local";
+  if (!ip.includes(":")) return ip;
+  // (written short, "::" stands for as many zero groups as the address is missing)
+  const [head = "", tail] = ip.split("::"), h = head ? head.split(":") : [], t = tail ? tail.split(":") : [];
+  const all = tail === undefined ? h : [...h, ...Array(Math.max(0, 8 - h.length - t.length)).fill("0"), ...t];
+  return all.slice(0, 4).map((g) => g.toLowerCase().replace(/^0+(?=.)/, "")).join(":") + "::/64";
+};
 /** Within this address's allowance for `what` (per minute, see wrangler.jsonc)? */
-const allowed = async (limiter: RateLimit, req: Request, what: string) => (await limiter.limit({ key: `${what}:${req.headers.get("cf-connecting-ip") ?? "local"}` })).success;
+const allowed = async (limiter: RateLimit, req: Request, what: string) => (await limiter.limit({ key: `${what}:${who(req)}` })).success;
+/** A new board (or link) within this address's allowance, and everyone's together. */
+const allowedNew = async (env: Env, req: Request) => (await allowed(env.NEW_BOARDS, req, "new")) && (await env.ALL_NEW_BOARDS.limit({ key: "new" })).success;
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url), path = url.pathname;
     if (path === "/api/boards" && request.method === "POST") {
-      if (!(await allowed(env.NEW_BOARDS, request, "new"))) return json({ error: "too many new boards from here: wait a minute" }, 429);
+      if (!(await allowedNew(env, request))) return json({ error: "too many new boards just now: wait a minute" }, 429);
       const text = await readUpTo(request, MAX_DOC);
       if (text === null) return json({ error: "that board is too big to share" }, 413);
       const key = newKey();
+      if (!text) await board(env, key).make();
       if (text) {
         let doc;
         try { doc = cleanDoc(JSON.parse(text)); } catch { return json({ error: "not a board" }, 400); }
@@ -61,7 +73,7 @@ export default {
     const rot = /^\/api\/b\/([^/]+)\/rotate$/.exec(path);
     if (rot && request.method === "POST") {
       if (!KEY.test(rot[1]!)) return json({ error: "no such board" }, 404);
-      if (!(await allowed(env.NEW_BOARDS, request, "new"))) return json({ error: "too many new links from here: wait a minute" }, 429);
+      if (!(await allowedNew(env, request))) return json({ error: "too many new links just now: wait a minute" }, 429);
       const body = await readUpTo(request, 200);
       let to = "";
       try { to = String((JSON.parse(body || "{}") as { to?: unknown }).to ?? ""); } catch { /* none */ }
