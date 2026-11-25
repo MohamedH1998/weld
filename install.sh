@@ -59,10 +59,11 @@ main() {
 
   # what is there must be a sound Weld (never a link, never another app that happens to be called Weld)
   if occupied "$target"; then
-    checked "$target" || fail "$target isn't a sound copy of Weld, so it wasn't touched. Move it to the Trash, then run this again."
-    # (the Weld found here, by its identity on disk: only this very folder may be swapped out and deleted)
-    had=1
+    # (the Weld found here, by its identity on disk, taken before it is checked: only this very folder, still sound,
+    # may be swapped out and deleted)
     was=$(identity "$target")
+    [ "$was" != none ] && checked "$target" && [ "$(identity "$target")" = "$was" ] || fail "$target isn't a sound copy of Weld, so it wasn't touched. Move it to the Trash, then run this again."
+    had=1
   fi
 
   # the download, checked against the SHA-256 pinned above before it is even opened
@@ -87,10 +88,10 @@ main() {
     # one step: Weld.app becomes the new copy, and the old one takes its place in the work folder (from the moment the
     # swap is asked for, cleanup treats it as done: nothing in the work folder is deleted unless it is known)
     phase="swapped"
-    swap "$work/Weld.app" "$target" || { phase="staging"; fail "couldn't swap in the new Weld (macOS may be asking to let your terminal change apps: allow it in System Settings → Privacy & Security → App Management). Your installed Weld is unchanged."; }
+    swap "$work/Weld.app" "$target" || { fail "couldn't swap in the new Weld (macOS may be asking to let your terminal change apps: allow it in System Settings → Privacy & Security → App Management). Your installed Weld is unchanged."; }
     # (what was swapped out must be the very Weld found before: if anything else had been put there meanwhile, it
     # goes straight back, in one step again)
-    if [ "$(identity "$work/Weld.app")" != "$was" ]; then
+    if [ "$(identity "$work/Weld.app")" != "$was" ] || ! checked "$work/Weld.app"; then
       swap "$work/Weld.app" "$target" || fail "$target changed during the update and couldn't be swapped back. What was there is at $work/Weld.app."
       fail "$target changed during the update, so it was put back as it was."
     fi
@@ -110,30 +111,31 @@ cleanup() {
   if [ -n "$work" ] && [ -d "$work" ]; then
     if [ "$phase" = staging ]; then rm -rf "$work"
     elif [ -z "$(ls -A "$work")" ]; then rmdir "$work"
-    elif [ "$(ls -A "$work")" = Weld.app ] && { id=$(identity "$work/Weld.app"); [ "$id" = "$was" ] || [ "$id" = "$ours_id" ]; }; then rm -rf "$work"
+    elif [ "$(ls -A "$work")" = Weld.app ] && known "$work/Weld.app"; then rm -rf "$work"
     else say "weld: kept $work, which holds something the installer didn't expect. Look inside before deleting it." >&2
     fi
   fi
   [ -z "$tmp" ] || rm -rf "$tmp"
-  [ -z "$lock" ] || { rm -f "$lock/pid"; rmdir "$lock" 2>/dev/null || true; }
+  [ -z "$lock" ] || rmdir "$lock" 2>/dev/null || true
+}
+
+# whether something in the work folder is known: this run's own copy, or the very Weld found at the start and still a
+# sound Weld (by identity, then checked); a failed lookup is unknown
+known() {
+  id=$(identity "$1")
+  [ "$id" != none ] || return 1
+  [ "$id" = "$ours_id" ] && return 0
+  [ -n "$was" ] && [ "$id" = "$was" ] && checked "$1"
 }
 
 # a path's identity on disk (device and inode: the same folder keeps it when renamed or swapped)
 identity() { stat -f '%d:%i' "$1" 2>/dev/null || echo none; }
 
-# The lock: a folder made with mkdir (which only one run can do), holding the pid of the run that made it. A lock whose
-# run no longer exists is taken over; one held by a running process, or that can't be read, is left alone.
+# The lock: a folder made with mkdir, which only one run can do. If it is already there, the run stops and touches
+# nothing; one left behind by a run that was force-quit is removed by hand (the message says where).
 take_lock() {
-  if ! mkdir "$1" 2>/dev/null; then
-    holder=$(cat "$1/pid" 2>/dev/null || true)
-    case "$holder" in "" | *[!0-9]*) fail "another Weld install seems to be running into $(dirname "$1"). Wait for it to finish, or if none is, remove $1." ;; esac
-    ps -p "$holder" >/dev/null 2>&1 && fail "another Weld install is running into $(dirname "$1"). Wait for it to finish."
-    rm -f "$1/pid"
-    rmdir "$1" 2>/dev/null || fail "couldn't clear a lock left by an earlier install at $1. Remove it, then run this again."
-    mkdir "$1" 2>/dev/null || fail "another Weld install is running into $(dirname "$1"). Wait for it to finish."
-  fi
+  mkdir "$1" 2>/dev/null || fail "another Weld install is running into $(dirname "$1"). Wait for it to finish; if none is (an earlier one was force-quit), remove the folder $1 and run this again."
   lock="$1"
-  echo $$ > "$1/pid"
 }
 
 # whether anything at all is at a path (a link counts, even a broken one)
