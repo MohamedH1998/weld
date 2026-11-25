@@ -41,6 +41,7 @@ a coding agent, point it at [AGENTS.md](AGENTS.md).
 | `electron/main.mjs` | The window, menu, files, and the door the `weld` command knocks on |
 | `electron/agents.mjs` | Threads: runs the agents' tools per turn and turns their events into one record |
 | `electron/acp.mjs` | Weld's threads for T3 Code (ACP over a private socket) and the `weld acp` shim |
+| `electron/t3.mjs` | Connecting T3 Code: Weld's entry in T3 Code's own settings, added or taken off from Settings |
 | `electron/acpclient.mjs`, `acppolicy.mjs`, `harness.mjs` | ACP agents as a thread's agent: the client, what it may do in each mode, and which agents there are |
 | `electron/boards.mjs` | The boards someone keeps, and what is asked of a board while it is away |
 | `electron/pty.mjs` | Shells |

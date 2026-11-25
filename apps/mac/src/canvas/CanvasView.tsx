@@ -727,7 +727,7 @@ export function CanvasView() {
           {(_, leaving) => <Palette editor={editor} leaving={leaving} close={() => setPalette(false)} />}
         </Presence>
         <Presence show={settingsOpen} value={null}>
-          {(_, leaving) => <Settings leaving={leaving} close={() => setSettingsOpen(false)} />}
+          {(_, leaving) => <Settings leaving={leaving} editor={editor} close={() => setSettingsOpen(false)} />}
         </Presence>
         <Presence show={!!menu} value={menu}>
           {(at, leaving) => at && <ContextMenu editor={editor} at={at} leaving={leaving} close={() => setMenu(null)} />}

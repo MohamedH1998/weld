@@ -1,7 +1,7 @@
 // The app's own process. It owns everything that runs: shells, agents,
 // files. The window is a view of it and can be reloaded at any time
 // without losing a running shell or a turn in flight.
-import { app, BrowserWindow, Menu, clipboard, Notification, dialog, ipcMain, nativeImage, nativeTheme, net, powerMonitor, powerSaveBlocker, protocol, screen, session, shell, webContents } from "electron";
+import { app, BrowserWindow, Menu, Notification, dialog, ipcMain, nativeImage, nativeTheme, net, powerMonitor, powerSaveBlocker, protocol, screen, session, shell, webContents } from "electron";
 import { createHash } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import { execFile } from "node:child_process";
@@ -18,6 +18,7 @@ import { processGroups } from "./groups.mjs";
 import { lifeRecord } from "./life.mjs";
 import { makeBoards } from "./boards.mjs";
 import { checkCommand, makeCatalog } from "./harness.mjs";
+import { makeT3 } from "./t3.mjs";
 import { makeAssets } from "./assets.mjs";
 import { Terminals } from "./pty.mjs";
 
@@ -354,6 +355,8 @@ const saltOf = () => {
   }
 };
 const catalog = makeCatalog({ which, commands, shellEnv: () => process.env, salt: saltOf });
+// T3 Code's settings: its own, or (a copy of Weld run by the checks) one of the test's, never the person's
+const t3 = makeT3({ dir: process.env.WELD_T3_DIR || (TEST ? file("t3") : path.join(os.homedir(), ".t3", "userdata")), bin: () => file("bin") });
 
 // ── pictures on the board (screenshots, images, SVGs) ─────────────────
 const assets = makeAssets({ dir: () => file("assets"), nativeImage });
@@ -1314,11 +1317,8 @@ function buildMenu() {
       {
         role: "help",
         submenu: [
-          {
-            // the one thing T3 Code needs to be told to open Weld's threads (Settings → Providers → Local ACP command)
-            label: "Copy T3 Code Command",
-            click: () => clipboard.writeText(path.join(file("bin"), "weld")),
-          },
+          // (in Settings, where it says what it does and can be undone)
+          item("Connect T3 Code…", undefined, "settings"),
         ],
       },
     ]),
@@ -1448,6 +1448,9 @@ function wire() {
     e.returnValue = catalog.list();
   });
   // ACP agents the person adds: checked here (the page is not trusted with what runs); environment by reference only
+  ipcMain.handle("t3:state", () => t3.state());
+  ipcMain.handle("t3:connect", () => t3.connect());
+  ipcMain.handle("t3:disconnect", () => t3.disconnect());
   ipcMain.handle("agents:saveCommand", (_e, c) => {
     const rec = { id: String(c?.id ?? ""), name: String(c?.name ?? "").trim(), command: String(c?.command ?? "").trim(), args: Array.isArray(c?.args) ? c.args.map(String).filter((a) => a.length) : [], env: c?.env && typeof c.env === "object" ? c.env : {} };
     if (!rec.id) rec.id = `${rec.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 30) || "agent"}-${randomBytes(2).toString("hex")}`;

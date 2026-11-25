@@ -22,7 +22,7 @@ import type { Ref } from "./refs";
 import type { Box, Id } from "@weld/canvas/types";
 
 /** What an agent is, under its name in the menu. */
-export const subOf = (a: AgentInfo) => (a.kind === "native" ? (a.id === "claude" ? "Claude Code" : "OpenAI") : a.kind === "command" ? "your ACP agent · Full access only" : a.experimental ? "experimental · Full access only" : "ACP");
+export const subOf = (a: AgentInfo) => (a.kind === "native" ? (a.id === "claude" ? "Claude Code" : "OpenAI") : a.kind === "command" ? "added by you · Full access only" : a.experimental ? "early support · Full access only" : "");
 const ICONS: Record<Ref["kind"], typeof ChatCircle> = { thread: ChatCircle, terminal: TerminalWindow, browser: Globe, frame: FrameCorners, group: Shapes, drawing: Graph, note: NoteBlank, image: ImageIcon };
 
 /** What a thread has been pointed at, by key (kept on its place on the board, so it stays with it). */

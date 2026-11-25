@@ -1,9 +1,13 @@
-// Settings: the agents Weld can ask, which of them are on this Mac, and adding one of your own by the line that starts it.
+// Settings: the agents Weld can ask, which of them are on this Mac (Claude Code and Codex installed from here), adding
+// one of your own by the line that starts it, and connecting T3 Code so Weld's threads can be followed from there.
 import { useEffect, useRef, useState } from "react";
-import { X } from "@phosphor-icons/react";
+import { Check, X } from "@phosphor-icons/react";
+import type { Editor } from "@weld/canvas/editor";
 import { agentList, weld } from "./bridge";
 import type { AgentInfo } from "./bridge";
 import { AgentLogo } from "./AgentLogo";
+import { installOther, OTHERS, SETUP, setUp } from "./setup";
+import type { Native } from "./setup";
 
 /** A command line as a shell reads it: words, quoted words, and NAME=$VARIABLE settings before the command. */
 export function parseLine(line: string): { env: Record<string, string>; command: string; args: string[] } | string {
@@ -41,7 +45,40 @@ const nameOf = (command: string, args: string[]) => {
   return base ? base[0]!.toUpperCase() + base.slice(1) : "My agent";
 };
 
-export function Settings({ close, leaving }: { close: () => void; leaving: boolean }) {
+/** T3 Code, if it is on this Mac: Weld added to it as one of its agents, or taken off it again. */
+function T3() {
+  const [state, setState] = useState<{ installed: boolean; connected: boolean } | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => void weld.t3.state().then(setState), []);
+  if (!state?.installed) return null;
+  const flip = async () => {
+    const r = await (state.connected ? weld.t3.disconnect() : weld.t3.connect());
+    setError(r.error ?? "");
+    setState(await weld.t3.state());
+  };
+  return (
+    <>
+      <div className="settings-label">T3 Code</div>
+      <div className="settings-row settings-t3">
+        <span className="settings-name settings-two">
+          <span>{state.connected ? "Weld is one of T3 Code's agents" : "Use Weld from T3 Code"}</span>
+          <span className="settings-sub">{state.connected ? "Pick Weld in T3 Code to open, follow and answer its threads, on your phone too" : "Open, follow and answer Weld's threads in T3 Code, on your phone too"}</span>
+        </span>
+        {state.connected ? (
+          <>
+            <span className="settings-state settings-on"><Check size={12} weight="bold" />Connected</span>
+            <button type="button" className="settings-remove ctl" onClick={() => void flip()}>Disconnect</button>
+          </>
+        ) : (
+          <button type="button" className="settings-go settings-small ctl" onClick={() => void flip()}>Connect</button>
+        )}
+      </div>
+      {error && <div className="settings-error">{error}</div>}
+    </>
+  );
+}
+
+export function Settings({ close, leaving, editor }: { close: () => void; leaving: boolean; editor: Editor }) {
   const [agents, setAgents] = useState<AgentInfo[]>(() => agentList(true));
   const [line, setLine] = useState("");
   const [error, setError] = useState("");
@@ -77,6 +114,7 @@ export function Settings({ close, leaving }: { close: () => void; leaving: boole
           <b>Settings</b>
           <button type="button" className="settings-x ctl" aria-label="Close" onClick={close}><X size={13} weight="bold" /></button>
         </div>
+        <T3 />
         <div className="settings-label">Agents</div>
         <div className="settings-list">
           {list.map((a) => (
@@ -85,6 +123,10 @@ export function Settings({ close, leaving }: { close: () => void; leaving: boole
               <span className="settings-name">{a.name}</span>
               {a.kind === "command" ? (
                 <button type="button" className="settings-remove ctl" onClick={() => void remove(a.id)}>Remove</button>
+              ) : !a.installed && (a.id === "claude" || a.id === "codex") ? (
+                <button type="button" className="settings-go settings-small ctl" onClick={() => (setUp(editor, a.id as Native, "install"), close())}>Install {SETUP[a.id as Native].name}</button>
+              ) : !a.installed && OTHERS[a.id] ? (
+                <button type="button" className="settings-go settings-small ctl" onClick={() => (installOther(editor, a.id), close())}>Install</button>
               ) : (
                 <span className="settings-state">{a.installed ? "On this Mac" : "Not installed"}</span>
               )}
@@ -96,7 +138,7 @@ export function Settings({ close, leaving }: { close: () => void; leaving: boole
             ref={field}
             value={line}
             onChange={(e) => (setLine(e.target.value), setError(""))}
-            placeholder="Add your own by its command"
+            placeholder="Add another agent by the command that starts it"
             aria-label="Add an agent by its command"
             spellCheck={false}
             autoCorrect="off"

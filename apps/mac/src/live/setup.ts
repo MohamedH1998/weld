@@ -13,6 +13,18 @@ export const SETUP: Record<Native, { name: string; by: string; install: string; 
   codex: { name: "Codex", by: "OpenAI", install: "npm install -g @openai/codex && codex login", signIn: "codex login" },
 };
 
+/** Other agents Weld finds by themselves, with the one line that installs each and then signs in (only where that line is the maker's own). */
+export const OTHERS: Record<string, { name: string; install: string }> = {
+  "acp:opencode": { name: "OpenCode", install: "npm install -g opencode-ai && opencode auth login" },
+  "acp:cursor": { name: "Cursor", install: "curl https://cursor.com/install -fsS | bash && cursor-agent login" },
+};
+/** A terminal on the board installing one of those. */
+export function installOther(editor: Editor, id: string): Id | null {
+  const o = OTHERS[id];
+  if (!o) return null;
+  return addLive(editor, "terminal", { cwd: weld.info.home, run: o.install, cmd: o.install }, `Installing ${o.name}`);
+}
+
 /** Whether an agent's failure is its asking to be signed in to. */
 export const wantsSignIn = (text: string | undefined) =>
   !!text && /\/login|not logged in|log ?in to|sign ?in|invalid api key|unauthori[sz]ed|\b401\b|authenticat/i.test(text);

@@ -515,3 +515,8 @@
 /* a thread's agent missing or signed out: the way to fix it, under what it said */
 .thread-fix { display: flex; justify-content: flex-start; margin-top: -2px; }
 .thread-fix .setup-go { height: 26px; font-size: 12px; }
+.settings-two { display: flex; flex-direction: column; white-space: normal; line-height: 1.3; }
+.settings-sub { font-size: 11.5px; color: var(--live-sub); }
+.settings-t3 { height: auto; padding-top: 8px; padding-bottom: 8px; }
+.settings-small { height: 28px; padding: 0 12px; border-radius: 8px; font-size: 12px; flex: none; }
+.settings-on { display: inline-flex; align-items: center; gap: 4px; color: var(--live-accent); flex: none; }

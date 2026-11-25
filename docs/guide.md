@@ -20,15 +20,18 @@ Everything Weld starts is given a `weld` command. Agents are told about it, and 
 
 | Agent | How it runs |
 | --- | --- |
-| **Claude Code**, **Codex** | Their own command-line tools, with **Full access**, **Edits only** or **Plan** |
-| **Grok, Kiro, fx, Antigravity, OpenCode, Cursor, Pi** | Over ACP, once their tool is installed (`grok`, `kiro-cli`, `fx`, `agy`, `opencode`, `cursor-agent`, `pi-acp`) |
-| **Any other ACP agent** | Add it from a thread's agent menu: a name, the command, and environment variables as references to your shell's (`API_KEY=$MY_API_KEY`), so Weld never stores a secret |
+| **Claude Code**, **Codex** | With **Full access**, **Edits only** or **Plan**. Not installed? Weld offers to install either one, in a terminal on the board, then asks you to sign in |
+| **Cursor, OpenCode, Grok, Kiro, Antigravity, fx, Pi** | Found by themselves once their command-line tool is installed (`cursor-agent`, `opencode`, `grok`, `kiro-cli`, `agy`, `fx`, `pi-acp`). Early support: Full access only, until each has been checked against the real agent |
+| **Any other agent** | In **Settings**, add it by the command that starts it. Keys go in as references to your shell's variables (`API_KEY=$MY_API_KEY`), so Weld never stores a secret |
 
-ACP agents are experimental and run in Full access only, until each has been checked against the real agent.
+Agents in the last two rows talk to Weld over the [Agent Client Protocol](https://agentclientprotocol.com), the open
+standard many coding agents support. You don't need to know anything about it to use them.
 
-Weld's threads can also be opened from [T3 Code](https://github.com/pingdotgg/t3code), and so followed and answered from
-its phone app: copy the command from **Help → Copy T3 Code Command** and add it in T3 Code as a **Local ACP command**
-provider.
+### T3 Code
+
+To use Weld's threads from [T3 Code](https://github.com/pingdotgg/t3code), open **Settings** (⌘,) and press **Connect**
+under T3 Code. Weld adds itself to T3 Code as an agent. Pick **Weld** there to open, follow and answer threads, from its
+phone app too. **Disconnect** takes it off again.
 
 ## Keys
 

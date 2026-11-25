@@ -10,8 +10,10 @@ The infinite canvas harness for coding agents.
 Weld puts your agents, their terminals and the pages they build side by side on one board. Run Claude Code and Codex
 together, point at what you mean instead of describing it, and watch the work come together.
 
-- **Agents, side by side.** Claude Code, Codex, or any [ACP](https://agentclientprotocol.com) agent, each with a mark
-  showing where it is working.
+- **Agents, side by side.** Claude Code, Codex, Cursor, OpenCode and more, each with a mark showing where it is
+  working.
+- **Works with T3 Code.** One click in Settings, and Weld's threads open in [T3 Code](https://github.com/pingdotgg/t3code),
+  on your phone too.
 - **Point, don't describe.** Select anything on the board and ask about it. The work lands beside it.
 - **Plan on the canvas.** Agents draw diagrams that play through their moments, starting from a catalogue of 279.
 - **See what gets built.** Pages open live on the board, exactly as your browser shows them.

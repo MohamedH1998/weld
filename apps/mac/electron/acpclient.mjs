@@ -58,11 +58,11 @@ export class AcpAgent {
             m = JSON.parse(line);
           } catch {
             // (some agents print a banner or a log line on stdout: ignored, unless it is all they print)
-            if ((garbage += 1) > MAX_GARBAGE) this.die(`${this.o.name} is not speaking ACP (its output is not JSON-RPC)`);
+            if ((garbage += 1) > MAX_GARBAGE) this.die(`${this.o.name} didn't start as an agent Weld can talk to (what it printed wasn't an agent's messages). Check the command`);
             continue;
           }
           if (!m || typeof m !== "object" || Array.isArray(m) || m.jsonrpc !== "2.0") {
-            if ((garbage += 1) > MAX_GARBAGE) this.die(`${this.o.name} is not speaking ACP (its messages are not JSON-RPC)`);
+            if ((garbage += 1) > MAX_GARBAGE) this.die(`${this.o.name} didn't start as an agent Weld can talk to (its messages weren't in the form agents use). Check the command`);
             continue;
           }
           garbage = 0;
@@ -91,7 +91,7 @@ export class AcpAgent {
         clientInfo: { name: "weld", title: "Weld", version: this.o.version },
         ...(this.o.flavor?.initMeta ? { _meta: this.o.flavor.initMeta } : {}),
       }, T_INIT);
-      if (init?.protocolVersion !== 1) throw new Error(`${this.o.name} needs ACP version ${init?.protocolVersion}, and Weld speaks version 1`);
+      if (init?.protocolVersion !== 1) throw new Error(`${this.o.name} is a newer kind of agent than this Weld can run. Update Weld (git pull && pnpm app)`);
       this.caps = init.agentCapabilities ?? {};
       this.authMethods = Array.isArray(init.authMethods) ? init.authMethods : [];
       if (this.o.flavor?.eagerAuth) await this.authenticate();

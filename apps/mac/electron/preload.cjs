@@ -23,6 +23,7 @@ contextBridge.exposeInMainWorld("weld", {
   onImage: on("board:image"),
   onImageChanged: on("board:imageChanged"),
   saveAgent: (c) => ipcRenderer.invoke("agents:saveCommand", c),
+  t3: { state: () => ipcRenderer.invoke("t3:state"), connect: () => ipcRenderer.invoke("t3:connect"), disconnect: () => ipcRenderer.invoke("t3:disconnect") },
   removeAgent: (id) => ipcRenderer.invoke("agents:removeCommand", id),
   board: {
     load: () => ipcRenderer.sendSync("board:loadSync"),

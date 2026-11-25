@@ -153,6 +153,8 @@ export interface Weld {
   agentList: () => AgentInfo[];
   saveAgent: (c: { id?: string; name: string; command: string; args: string[]; env: Record<string, string> }) => Promise<{ id?: string; error?: string }>;
   removeAgent: (id: string) => Promise<boolean>;
+  /** T3 Code: whether it is on this Mac, and whether Weld is one of its agents; adding Weld to it, or taking it off. */
+  t3: { state: () => Promise<{ installed: boolean; connected: boolean }>; connect: () => Promise<{ ok?: boolean; error?: string }>; disconnect: () => Promise<{ ok?: boolean; error?: string }> };
   info: { home: string; dev: boolean; version: string; agents: Record<Agent, boolean>; settings: Settings; models?: { codex?: { id: string; name: string; sub?: string }[] }; seed?: boolean; test?: boolean; board?: { id: string; name: string; dir?: string | null } };
   board: { load: () => { doc?: string; cam?: string } | null; save: (b: { doc: string | null; cam: string | null; board?: string; done?: string[] }) => Promise<boolean>; saveNow: (b: { doc: string | null; cam: string | null; board?: string; done?: string[] }) => boolean; keepAside: (board?: string) => void; threads: (ids: string[], ok: boolean, board?: string) => void };
   boards: {
