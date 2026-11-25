@@ -402,6 +402,19 @@ const Part = memo(function Part({ text, open }: { text: string; open: (url: stri
               {children}
             </a>
           ),
+          // (a picture an agent names is not fetched by itself: what the window loads would reach the network for an
+          // agent that may not; it is a link, opened beside the thread when pressed)
+          img: ({ src, alt }) => (
+            <a
+              href={typeof src === "string" ? src : undefined}
+              onClick={(e) => {
+                e.preventDefault();
+                if (typeof src === "string" && /^https?:/.test(src)) open(src);
+              }}
+            >
+              {alt || "picture"}
+            </a>
+          ),
         }}
       >
         {text}

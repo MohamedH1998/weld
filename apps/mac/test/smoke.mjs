@@ -68,7 +68,9 @@ export default async ({ app, page, out }) => {
 
   // T3 Code's way in: `weld acp`, run by Weld's own executable as Node, answering ACP over Weld's socket
   const hello = await new Promise((resolve) => {
-    const p = spawn(path.join(door.bin, "weld"), ["acp"], { env: { ...process.env, WELD_URL: door.url, WELD_TOKEN: door.key, WELD_FROM: T } });
+    // (with T3 Code's own environment: nothing of Weld's door in it)
+    const { WELD_URL: _u, WELD_TOKEN: _t, WELD_FROM: _f, ...outside } = process.env;
+    const p = spawn(path.join(door.bin, "weld"), ["acp"], { env: outside });
     let buf = "";
     const done = (v) => (clearTimeout(t), p.kill(), resolve(v));
     const t = setTimeout(() => done(null), 15000);
@@ -89,4 +91,12 @@ export default async ({ app, page, out }) => {
     p.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: 1, clientCapabilities: {} } })}\n`);
   });
   check("weld acp answers T3 Code's first request", hello?.result?.protocolVersion === 1, hello);
+  // and a thread or terminal inside Weld cannot reach its threads that way, around its own limits
+  let refused = false;
+  try {
+    weld("acp");
+  } catch (e) {
+    refused = /apps outside Weld/.test(String(e.stderr));
+  }
+  check("weld acp is refused inside Weld", refused);
 };
