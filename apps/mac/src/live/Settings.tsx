@@ -1,7 +1,8 @@
 // Settings: the agents Weld can ask, which of them are on this Mac (Claude Code and Codex installed from here), adding
 // one of your own by the line that starts it, and connecting T3 Code so Weld's threads can be followed from there.
 import { useEffect, useRef, useState } from "react";
-import { Check, X } from "@phosphor-icons/react";
+import { X } from "@phosphor-icons/react";
+import { Switch } from "@cloudflare/kumo/components/switch";
 import type { Editor } from "@weld/canvas/editor";
 import { agentsFound, disable, enable, enabled, weld } from "./bridge";
 import type { AgentInfo } from "./bridge";
@@ -64,14 +65,7 @@ function T3() {
           <span>{state.connected ? "Weld is one of T3 Code's agents" : "Use Weld from T3 Code"}</span>
           <span className="settings-sub">{state.connected ? "Pick Weld in T3 Code to open, follow and answer its threads, on your phone too" : "Open, follow and answer Weld's threads in T3 Code, on your phone too"}</span>
         </span>
-        {state.connected ? (
-          <>
-            <span className="settings-state settings-on"><Check size={12} weight="bold" />Connected</span>
-            <button type="button" className="settings-remove ctl" onClick={() => void flip()}>Disconnect</button>
-          </>
-        ) : (
-          <button type="button" className="settings-go settings-small ctl" onClick={() => void flip()}>Connect</button>
-        )}
+        <Switch size="sm" checked={state.connected} onCheckedChange={() => void flip()} aria-label={state.connected ? "Disconnect T3 Code" : "Connect T3 Code"} />
       </div>
       {error && <div className="settings-error">{error}</div>}
     </>
@@ -128,13 +122,8 @@ export function Settings({ close, leaving, editor }: { close: () => void; leavin
                 <button type="button" className="settings-go settings-small ctl" onClick={() => (setUp(editor, a.id as Native, "install"), close())}>Install {SETUP[a.id as Native].name}</button>
               ) : !a.installed && OTHERS[a.id] ? (
                 <button type="button" className="settings-go settings-small ctl" onClick={() => (installOther(editor, a.id), close())}>Install</button>
-              ) : a.installed && !enabled(a.id) ? (
-                <button type="button" className="settings-go settings-small ctl" onClick={() => (enable(a.id), fresh())}>Enable</button>
               ) : a.installed ? (
-                <>
-                  <span className="settings-state">On</span>
-                  <button type="button" className="settings-off ctl" onClick={() => (disable(a.id), fresh())}>Turn off</button>
-                </>
+                <Switch size="sm" checked={enabled(a.id)} onCheckedChange={(on) => ((on ? enable : disable)(a.id), fresh())} aria-label={`${enabled(a.id) ? "Turn off" : "Enable"} ${a.name}`} />
               ) : (
                 <span className="settings-state">Not installed</span>
               )}

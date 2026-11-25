@@ -15,25 +15,29 @@ export default async ({ page, shot }) => {
   check("the first board offers the agents found, to switch on", rows.length >= 2 && rows.some((r) => /Claude/.test(r) && /Enable/.test(r)), rows);
   check("…and nothing is switched on by itself", (await page.locator(".welcome-tasks").count()) === 0);
   await shot?.("first-board");
-  const go = page.locator(".setup-row").filter({ hasText: "Claude" }).getByRole("button", { name: "Enable" });
+  const go = page.locator(".setup-row").filter({ hasText: "Claude" }).locator(".setup-toggle");
   check("its buttons show the hand", (await go.evaluate((b) => getComputedStyle(b).cursor)) === "pointer");
   await go.click();
+  await wait(140);
+  await shot?.("enabling");
   await wait(600);
-  check("one press switches Claude on, and the card says so and stays", (await page.locator(".setup-row").filter({ hasText: "Claude" }).innerText()).includes("Enabled") && (await page.locator(".setup").count()) === 1);
+  check("one press switches Claude on, and the card says so and stays", (await page.locator('.setup-toggle[data-on]').count()) === 1 && (await page.locator(".setup").count()) === 1);
   await shot?.("enabled-one");
-  await page.locator(".setup-row").filter({ hasText: "Codex" }).getByRole("button", { name: "Enable" }).click();
+  await page.locator(".setup-row").filter({ hasText: "Codex" }).locator(".setup-toggle").click();
   await wait(600);
-  check("…then Codex the same way", (await page.locator(".setup-on").count()) === 2);
+  check("…then Codex the same way", (await page.locator('.setup-toggle[data-on]').count()) === 2);
   await shot?.("enabled-both");
-  await page.locator(".setup").getByRole("button", { name: "Done" }).click();
-  await wait(600);
-  check("Done puts the card away, and the board is ready to ask", (await page.locator(".setup").count()) === 0 && (await page.locator(".welcome-tasks").count()) === 1);
+  // (the pointer off the card: it goes by itself a few seconds after the last press)
+  await page.mouse.move(200, 200);
+  await wait(3600);
+  check("it goes by itself, and the board is ready to ask", (await page.locator(".setup").count()) === 0 && (await page.locator(".welcome-tasks").count()) === 1);
 
   await page.getByRole("button", { name: "Settings" }).click();
   await wait(600);
   const list = await page.locator(".settings-row").allInnerTexts();
   check("Settings opens from its button in the corner", list.length > 0, list);
-  check("…with Claude and Codex on", list.some((r) => /Claude/.test(r) && /Turn off/.test(r)) && list.some((r) => /Codex/.test(r) && /Turn off/.test(r)), list);
+  const on = (name) => page.locator(".settings-row").filter({ hasText: name }).getByRole("switch").getAttribute("aria-checked");
+  check("…with Claude and Codex switched on", (await on("Claude")) === "true" && (await on("Codex")) === "true", [await on("Claude"), await on("Codex")]);
   check("…and T3 Code at the top", (await page.locator(".settings").innerText()).includes("T3 Code"));
   await shot?.("settings");
   await page.keyboard.press("Escape");

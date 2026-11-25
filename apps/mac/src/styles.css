@@ -81,3 +81,7 @@ body {
 
 /* what can be pressed says so: the hand over every button (and anything acting as one), never over one that is off */
 button:not(:disabled), [role="button"], summary { cursor: pointer; }
+
+/* Kumo's switch, on, in Weld's green (it ships in blue), with a white knob in light and dark alike */
+[role="switch"][aria-checked="true"] { background-color: var(--color-kumo-brand) !important; --tw-ring-color: var(--color-kumo-brand-hover) !important; }
+[role="switch"][aria-checked="true"] > * { background-color: #fff !important; }
