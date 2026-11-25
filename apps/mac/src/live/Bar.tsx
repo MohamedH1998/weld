@@ -158,7 +158,7 @@ export const Bar = memo(function Bar({ editor, dark }: { editor: Editor; dark: b
           <div key={b.id} hidden><ThreadNode box={b} editor={editor} active={false} far={false} dark={dark} /></div>
         ))}
         {trouble && <div className="welcome-trouble">{trouble}</div>}
-        {!agents && !reading && <Setup editor={editor} />}
+        {!agents && !reading && (empty || store.doc.order.every((id) => store.doc.shapes[id]?.kind === "terminal")) && <Setup editor={editor} />}
         {empty && !reading && agents && (
           <div className="welcome-tasks">
             {TASKS.map((t) => (

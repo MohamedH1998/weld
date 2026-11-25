@@ -15,7 +15,7 @@ export default async ({ page, shot }) => {
   say(!(await page.evaluate(() => [...document.querySelectorAll(".ask-menu button, .live-menu button")].some((b) => /Add an ACP agent/.test(b.textContent)))), "the agent menus no longer offer to add one");
   // refused: a command that isn't there
   await page.fill(".settings-add input", "no-such-agent-here acp");
-  await page.click(".settings-go");
+  await page.click(".settings-add .settings-go");
   await page.waitForTimeout(300);
   const err = await page.evaluate(() => document.querySelector(".settings-error")?.textContent ?? "");
   say(/isn't an executable/.test(err), "a command that isn't there is said", err);
@@ -33,14 +33,14 @@ export default async ({ page, shot }) => {
   await page.keyboard.press("Escape");
   await page.waitForTimeout(300);
   say(!(await page.isVisible(".settings")), "Escape closes it");
-  await page.click(".ask-row .live-chip >> nth=0");
+  await page.click(".ask-row .live-chip:has(.agent-logo)");
   await page.waitForTimeout(200);
   say(await page.evaluate(() => [...document.querySelectorAll(".ask-menu button")].some((b) => /Mock-acp-agent/.test(b.textContent))), "the bar's agent menu offers it");
   await page.keyboard.press("Escape");
   // removed
   await page.evaluate(() => window.dispatchEvent(new Event("weld:settings")));
   await page.waitForTimeout(300);
-  await page.click(".settings-remove");
+  await page.click(".settings-list .settings-remove");
   await page.waitForTimeout(300);
   say((await mine()).length === 0 && !(await rows()).some((r) => r.includes("Remove")), "Remove takes it away");
 };

@@ -22,12 +22,12 @@ export const OTHERS: Record<string, { name: string; install: string }> = {
 export function installOther(editor: Editor, id: string): Id | null {
   const o = OTHERS[id];
   if (!o) return null;
-  return addLive(editor, "terminal", { cwd: weld.info.home, run: o.install, cmd: o.install }, `Installing ${o.name}`);
+  return unpicked(editor, addLive(editor, "terminal", { cwd: weld.info.home, run: o.install, cmd: o.install }, `Installing ${o.name}`));
 }
 
 /** Whether an agent's failure is its asking to be signed in to. */
 export const wantsSignIn = (text: string | undefined) =>
-  !!text && /\/login|not logged in|log ?in to|sign ?in|invalid api key|unauthori[sz]ed|\b401\b|authenticat/i.test(text);
+  !!text && /\/login|not logged in|log ?in to|sign ?in|invalid api key|authentication_error|not authenticated/i.test(text);
 /** Whether a failure is the agent not being on this Mac at all. */
 export const notInstalled = (text: string | undefined) => !!text && /is not installed on this Mac/.test(text);
 
@@ -36,5 +36,10 @@ export function setUp(editor: Editor, agent: Native, what: "install" | "signIn",
   const s = SETUP[agent];
   const live = { cwd: weld.info.home, run: s[what], cmd: s[what] };
   const title = what === "install" ? `Installing ${s.name}` : `Signing in to ${s.name}`;
-  return from ? openBeside(editor, from, "terminal", live, title) : addLive(editor, "terminal", live, title);
+  return unpicked(editor, from ? openBeside(editor, from, "terminal", live, title) : addLive(editor, "terminal", live, title));
+}
+/** A setup terminal is never left selected: what is selected goes with the next question, and its output holds sign-in links and codes. */
+function unpicked(editor: Editor, id: Id): Id {
+  if (editor.store.sel.has(id)) (editor.store.select([]), editor.store.emit());
+  return id;
 }

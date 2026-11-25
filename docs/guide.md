@@ -30,8 +30,9 @@ standard many coding agents support. You don't need to know anything about it to
 ### T3 Code
 
 To use Weld's threads from [T3 Code](https://github.com/pingdotgg/t3code), open **Settings** (⌘,) and press **Connect**
-under T3 Code. Weld adds itself to T3 Code as an agent. Pick **Weld** there to open, follow and answer threads, from its
-phone app too. **Disconnect** takes it off again.
+under T3 Code. Weld adds itself to T3 Code as an agent. In T3 Code, open the folder a thread works in as a project, then
+pick **Weld** there to open, follow and answer that folder's threads, from T3 Code's phone app too. **Disconnect** takes
+it off again.
 
 ## Keys
 

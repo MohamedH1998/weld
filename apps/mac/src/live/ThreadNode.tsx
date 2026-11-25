@@ -258,8 +258,8 @@ const Transcript = memo(function Transcript({ items, meta, running, active, edit
   const scroller = useRef<HTMLDivElement>(null);
   const stuck = useRef(true);
   const { blocks, kids } = useMemo(() => blocksOf(items), [items]);
-  // (only the latest failure offers its fix: an earlier one was fixed, or will be by this one's)
-  const lastError = useMemo(() => [...items].reverse().find((i) => i.kind === "error")?.id, [items]);
+  // (a failure offers its fix only while it is the thread's last word: anything after it means it was got past)
+  const lastError = useMemo(() => (items.at(-1)?.kind === "error" ? items.at(-1)!.id : undefined), [items]);
   // Follows what is being written, until the reader scrolls away from the end: once a frame, just before the page
   // lays out anyway (asking for the height straight after each change would lay everything out there and then).
   const follow = useRef(0);
