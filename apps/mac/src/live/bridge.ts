@@ -254,7 +254,9 @@ export function enabled(id: Agent): boolean {
 /** Switch an agent on (one press, in Settings or on the first board), and ask new things of it. */
 export function enable(id: Agent) {
   const was = settings.enabled ?? agentsFound().filter((a) => enabled(a.id)).map((a) => a.id);
-  remember({ enabled: [...new Set([...was, id])], agent: id });
+  // (the first one switched on is the one new things are asked of; enabling another later doesn't change that)
+  const first = !(settings.agent && was.includes(settings.agent));
+  remember({ enabled: [...new Set([...was, id])], ...(first ? { agent: id } : {}) });
 }
 export function disable(id: Agent) {
   const was = settings.enabled ?? agentsFound().filter((a) => enabled(a.id)).map((a) => a.id);

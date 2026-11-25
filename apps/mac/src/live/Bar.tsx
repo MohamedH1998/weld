@@ -3,11 +3,11 @@
 // says what each of these threads is doing, and asks for the person there when it needs them; pressed, it opens the
 // whole conversation, which folds back down when done with. Any thread can still be put on the board as a card.
 import { memo, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { ArrowUp, CaretDown, Folder, X } from "@phosphor-icons/react";
+import { ArrowUp, CaretDown, Check, Folder, X } from "@phosphor-icons/react";
 import type { Editor } from "@weld/canvas/editor";
 import { boundsOf } from "@weld/canvas/geometry";
 import type { Box, Id } from "@weld/canvas/types";
-import { agentList, agentName, agentsFound, agentsKnown, enable, boardDir, chosenAgent, chosenModel, defaultCwd, folderName, installed, modelsOf, remember, setBoardDir, settings, tilde, weld } from "./bridge";
+import { agentList, agentName, agentsFound, agentsKnown, enable, enabled, boardDir, chosenAgent, chosenModel, defaultCwd, folderName, installed, modelsOf, remember, setBoardDir, settings, tilde, weld } from "./bridge";
 import type { Item } from "./bridge";
 import { smiths, smithsVersion, subscribeSmiths } from "./smith";
 import { openings } from "./opening";
@@ -28,21 +28,25 @@ const TASKS: { label: string; ask: string }[] = [
 
 /** With no agent switched on: the two Weld knows, each switched on with a press if it is on this Mac, or installed (and
  *  signed in to) in a terminal on the board if it is not. */
-function Setup({ editor, onEnable }: { editor: Editor; onEnable: () => void }) {
+function Setup({ editor, onEnable, onDone }: { editor: Editor; onEnable: () => void; onDone: () => void }) {
   const found = agentsFound();
+  const any = (Object.keys(SETUP) as Native[]).some((a) => enabled(a));
   // (each pressed once: then the button goes to its terminal, which says how it went)
   const [term, setTerm] = useState<Partial<Record<Native, Id>>>({});
   return (
     <div className="setup">
       <div className="setup-head">
         <div className="setup-title">Weld runs the coding agents you use</div>
+        {any && <button type="button" className="setup-go ctl" onMouseDown={(e) => e.preventDefault()} onClick={onDone}>Done</button>}
       </div>
       <div className="setup-card">
         {(Object.keys(SETUP) as Native[]).map((a) => (
           <div key={a} className="setup-row">
             <span className="setup-logo"><AgentLogo id={a} size={16} /></span>
             <span className="setup-name">{SETUP[a].name}<span className="setup-by">{SETUP[a].by}</span></span>
-            {found.some((x) => x.id === a && x.installed) ? (
+            {found.some((x) => x.id === a && x.installed) && enabled(a) ? (
+              <span className="setup-on"><Check size={12} weight="bold" />Enabled</span>
+            ) : found.some((x) => x.id === a && x.installed) ? (
               <button type="button" className="setup-go ctl" onMouseDown={(e) => e.preventDefault()} onClick={() => (enable(a), onEnable())}>Enable</button>
             ) : term[a] && editor.store.doc.shapes[term[a]!] ? (
               <button type="button" className="setup-go ctl" data-quiet onMouseDown={(e) => e.preventDefault()} onClick={() => goTo(editor, term[a]!)}>Installing…</button>
@@ -76,6 +80,8 @@ export const Bar = memo(function Bar({ editor, dark }: { editor: Editor; dark: b
   const [text, setText] = useState("");
   const [reading, setReading] = useState<Id | null>(null);
   const [trouble, setTrouble] = useState("");
+  // (the first card stays once an agent is enabled on it, so the others can be too, until the person says Done)
+  const [setting, setSetting] = useState(false);
   const area = useRef<HTMLTextAreaElement>(null);
   const away = awayThreads(editor);
   for (const b of away) ensure(b.id);
@@ -168,8 +174,8 @@ export const Bar = memo(function Bar({ editor, dark }: { editor: Editor; dark: b
           <div key={b.id} hidden><ThreadNode box={b} editor={editor} active={false} far={false} dark={dark} /></div>
         ))}
         {trouble && <div className="welcome-trouble">{trouble}</div>}
-        {!agents && known && !reading && onboarding && <Setup editor={editor} onEnable={() => looked((n) => n + 1)} />}
-        {empty && !reading && agents && (
+        {((!agents && known && onboarding) || setting) && !reading && <Setup editor={editor} onEnable={() => (setSetting(true), looked((n) => n + 1))} onDone={() => setSetting(false)} />}
+        {empty && !reading && agents && !setting && (
           <div className="welcome-tasks">
             {TASKS.map((t) => (
               <button key={t.label} type="button" className="welcome-task ctl" onMouseDown={(e) => e.preventDefault()} onClick={() => start(t.ask, false)}>
