@@ -23,17 +23,23 @@ Weld has no model of its own. It runs the agents you already use, signed in as y
 
 ## Install
 
-On a Mac with Apple silicon, with [Node](https://nodejs.org) 22.13 or later and [pnpm](https://pnpm.io/installation):
+On a Mac with Apple silicon:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/MohamedH1998/weld/main/install.sh | sh
+```
+
+That puts the latest Weld in Applications and opens it; run it again to update. Weld runs
+[Claude Code](https://docs.anthropic.com/en/docs/claude-code) or [Codex](https://github.com/openai/codex); if you have
+neither, it offers to install one the first time it opens.
+
+To build it yourself instead, with [Node](https://nodejs.org) 22.13 or later and [pnpm](https://pnpm.io/installation):
 
 ```sh
 git clone https://github.com/MohamedH1998/weld && cd weld
 pnpm install
 pnpm app
 ```
-
-That builds Weld and puts it in Applications. Run `git pull && pnpm app` to update. Weld runs
-[Claude Code](https://docs.anthropic.com/en/docs/claude-code) or [Codex](https://github.com/openai/codex); if you have
-neither, it offers to install one the first time it opens.
 
 The canvas also runs in any browser at [weld.momito.co.uk](https://weld.momito.co.uk), with boards you can share by link.
 
