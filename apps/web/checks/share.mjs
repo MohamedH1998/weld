@@ -1,5 +1,5 @@
 // node checks/share.mjs [origin] — shared boards in the browser: Share makes a link; an agent's diagram appears live in two
-// open browsers; an edit in one reaches the other and the agent; the Share panel shows the lines to paste; a new link moves it.
+// open browsers; an edit in one reaches the other and the agent; the Share card shows the lines to paste; a new link moves it.
 import { chromium } from "playwright-core";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
@@ -37,11 +37,12 @@ ok("…and the agent reads it", read.other.words.includes("Colleague's box"), JS
 // the lines to paste
 await p1.getByRole("button", { name: "Shared" }).click();
 const agentLine = async (tab) => { await p1.getByRole("tab", { name: tab }).click(); return (await p1.locator('[role="dialog"] code').allTextContents())[1] ?? ""; };
-const lines = [await agentLine("Claude Code"), await agentLine("Codex"), await agentLine("Other")];
+const lines = [await agentLine("Claude Code"), await agentLine("Codex"), await agentLine("MCP")];
 ok("the Share panel shows the line to connect Claude Code, Codex or any client to this board", lines[0].includes(`Bearer ${key}`) && lines[1].includes(`/mcp/${key}`) && lines[2].endsWith(`/mcp/${key}`), lines.join(" | "));
 // a new link: an edit made just before it goes over with the board
 await p1.evaluate(() => { const s = window.__editor.store; s.run(() => s.put({ id: "last", kind: "rect", x: 300, y: 300, w: 160, h: 80, text: "Just before", tone: "ink", fill: "none" })); });
-await p1.getByRole("button", { name: "New link" }).click();
+await p1.getByRole("button", { name: "Link options" }).click();
+await p1.getByRole("menuitem", { name: "New link…" }).click();
 await p1.getByRole("button", { name: "Make a new link" }).click();
 await p1.waitForURL((u) => !u.toString().includes(key), { timeout: 20000 });
 ok("New link moves the board to another link", /\/b\/[A-Za-z0-9_-]{22}/.test(p1.url()));

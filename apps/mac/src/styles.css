@@ -15,10 +15,13 @@
 :root {
   --color-kumo-brand: #0b7f57;
   --color-kumo-brand-hover: #096b49;
+  /* (Kumo's brand text colour is a token of its own, orange by default) */
+  --text-color-kumo-brand: #0b7f57;
 }
 [data-mode="dark"] {
   --color-kumo-brand: #0fae7a;
   --color-kumo-brand-hover: #2fc896;
+  --text-color-kumo-brand: #0fae7a;
 }
 
 @custom-variant dark (&:where([data-mode="dark"], [data-mode="dark"] *));

@@ -1,21 +1,29 @@
-// Sharing a board, top right: one button, one panel. On a board of one's own, Share puts it on the server under a secret
+// Sharing a board, top right: one button, one card. On a board of one's own, Share puts it on the server under a secret
 // link and it goes live where it stands (no reload), with the link already copied. On a shared board the same button opens
-// the panel: the link, the line that connects a person's own agent to it, and a new link when the old one has gone too far.
+// the card: a Kumo layered card whose strip says the board is live and who can edit it (and, behind ⋯, a new link), and
+// whose card holds the two things to copy: the link, and the line that connects a person's own agent to it.
 import { useEffect, useRef, useState } from "react";
-import { ArrowClockwise, Check, Copy, ShareNetwork } from "@phosphor-icons/react";
+import { ArrowClockwise, Check, Copy, DotsThree, ShareNetwork } from "@phosphor-icons/react";
+import { LayerCard } from "@cloudflare/kumo";
 import type { Doc } from "@weld/canvas/types";
 
 /** 128 random bits, as a board's key. */
 const freshKey = () => btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(16)))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-const PANEL = "rounded-[12px] bg-kumo-base shadow-[0_8px_28px_rgba(0,0,0,0.10),0_1px_3px_rgba(0,0,0,0.06)] ring ring-kumo-line dark:shadow-[0_8px_28px_rgba(0,0,0,0.5)]";
-const BTN = "ctl flex h-8 items-center gap-1.5 rounded-md px-2.5 text-[13px] font-medium text-kumo-default hover:bg-black/[0.05] disabled:opacity-50 dark:hover:bg-white/[0.08]";
-const WELL = "rounded-lg bg-black/[0.035] ring ring-inset ring-black/[0.04] dark:bg-white/[0.05] dark:ring-white/[0.05]";
+// (the floating button, in the same layer as the board's other controls)
+const PILL = "ctl flex h-9 items-center gap-2 rounded-[10px] bg-kumo-base px-3 text-[13px] font-medium text-kumo-default shadow-[0_1px_2px_rgba(0,0,0,0.06),0_4px_14px_rgba(0,0,0,0.06)] ring ring-kumo-line hover:bg-kumo-elevated disabled:opacity-60 dark:shadow-[0_4px_14px_rgba(0,0,0,0.4)]";
+const CARD = "ui-in w-[min(380px,calc(100vw-32px))] shadow-[0_12px_32px_-12px_rgba(0,0,0,0.18),0_1px_2px_rgba(0,0,0,0.04)] dark:shadow-[0_12px_32px_-12px_rgba(0,0,0,0.6)]";
+const STRIP = "my-0 px-3.5 py-2.5 text-[12.5px]";
+const ROW = "flex h-9 items-center gap-1 rounded-md bg-kumo-elevated pl-3 pr-1 ring ring-inset ring-kumo-hairline";
+const ICON = "ctl flex size-7 shrink-0 items-center justify-center rounded-md text-kumo-subtle hover:bg-kumo-fill hover:text-kumo-default";
 
-/** Copies `text`, and says so on the button for a moment. */
-function useCopy(): [boolean, (text: string) => void] {
-  const [done, setDone] = useState(false);
+/** Copies `text`, and says so for a moment. */
+function useCopy(initially = false): [boolean, (text: string) => void] {
+  const [done, setDone] = useState(initially);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
+  useEffect(() => {
+    if (initially) timer.current = setTimeout(() => setDone(false), 1800);
+    return () => { if (timer.current) clearTimeout(timer.current); };
+  }, [initially]);
   return [done, (text) => void navigator.clipboard.writeText(text).then(() => {
     setDone(true);
     if (timer.current) clearTimeout(timer.current);
@@ -23,92 +31,74 @@ function useCopy(): [boolean, (text: string) => void] {
   }, () => {})];
 }
 
-function CopyButton({ text, label, quiet }: { text: string; label: string; quiet?: boolean }) {
-  const [done, copy] = useCopy();
+/** One thing to copy: shown on one line (all of it on hover), copied by the button beside it. */
+function CopyRow({ text, shown, label, copied }: { text: string; shown?: string; label: string; copied?: boolean }) {
+  const [done, copy] = useCopy(copied);
   return (
-    <button
-      className={quiet
-        ? "ctl flex size-7 shrink-0 items-center justify-center rounded-md text-kumo-subtle hover:bg-black/[0.06] hover:text-kumo-default dark:hover:bg-white/[0.1]"
-        : "ctl flex h-8 shrink-0 items-center gap-1.5 rounded-md bg-kumo-brand px-3 text-[13px] font-medium text-white hover:brightness-110"}
-      aria-label={quiet ? `Copy ${label}` : undefined}
-      onClick={() => copy(text)}
-    >
-      {done ? <Check size={quiet ? 14 : 15} weight="bold" /> : <Copy size={quiet ? 14 : 15} />}
-      {!quiet && (done ? "Copied" : "Copy")}
-    </button>
+    <div className={ROW}>
+      <code className="min-w-0 flex-1 select-all truncate font-mono text-[11.5px] text-kumo-default" title={text}>{shown ?? text}</code>
+      <button className={ICON} aria-label={done ? `${label} copied` : `Copy ${label}`} title={done ? "Copied" : "Copy"} onClick={() => copy(text)}>
+        {done ? <Check size={14} weight="bold" className="text-kumo-brand" /> : <Copy size={14} />}
+      </button>
+    </div>
   );
 }
 
-const AGENTS = ["Claude Code", "Codex", "Other", "This browser"] as const;
+const AGENTS = ["Claude Code", "Codex", "Any MCP client"] as const;
 type Agent = (typeof AGENTS)[number];
 
-/** How a person's own agent joins the board: the line to paste for the agent they use. */
+/** How a person's own agent joins the board: the line for the agent they use. */
 function Connect({ origin, board }: { origin: string; board: string }) {
   const [agent, setAgent] = useState<Agent>("Claude Code");
-  const lines: Record<Agent, { text: string; say: string }> = {
-    "Claude Code": { text: `claude mcp add --transport http canvas ${origin}/mcp --header "Authorization: Bearer ${board}"`, say: "Run in a terminal, then ask Claude to draw on the board." },
-    Codex: { text: `codex mcp add canvas --url ${origin}/mcp/${board}`, say: "Run in a terminal, then ask Codex to draw on the board." },
-    Other: { text: `${origin}/mcp/${board}`, say: "Add as a remote MCP server (streamable HTTP) in any client." },
-    "This browser": { text: "", say: "" },
+  const lines: Record<Agent, string> = {
+    "Claude Code": `claude mcp add --transport http canvas ${origin}/mcp --header "Authorization: Bearer ${board}"`,
+    Codex: `codex mcp add canvas --url ${origin}/mcp/${board}`,
+    "Any MCP client": `${origin}/mcp/${board}`,
   };
-  const line = lines[agent];
-  // (an agent in the browser itself finds the board's tools on this page through WebMCP: nothing to paste)
+  // (an agent in the browser itself finds the board's tools on this page through WebMCP: said only where it can)
   const webmcp = typeof document !== "undefined" && "modelContext" in document;
   return (
     <div className="flex flex-col gap-2">
-      <span className="text-[13px] font-medium text-kumo-default">Connect an agent</span>
-      <div role="tablist" aria-label="Agent" className={`grid grid-cols-4 gap-0.5 p-0.5 ${WELL}`}>
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[12.5px] font-medium text-kumo-default">Connect an agent</span>
+        <div role="tablist" aria-label="Agent" className="flex gap-0.5">
           {AGENTS.map((a) => (
             <button
               key={a}
               role="tab"
               aria-selected={a === agent}
               onClick={() => setAgent(a)}
-              className={`ctl whitespace-nowrap rounded-[6px] px-1.5 py-1 text-[12px] font-medium ${a === agent ? "bg-kumo-base text-kumo-default shadow-[0_1px_2px_rgba(0,0,0,0.08)] ring ring-kumo-line" : "text-kumo-subtle hover:text-kumo-default"}`}
+              className={`ctl rounded-md px-2 py-1 text-[11.5px] font-medium ${a === agent ? "bg-kumo-fill text-kumo-default" : "text-kumo-subtle hover:text-kumo-default"}`}
             >
-              {a}
+              {a === "Any MCP client" ? "MCP" : a}
             </button>
           ))}
-      </div>
-      {agent === "This browser" ? (
-        <div className={`flex flex-col gap-1 px-3 py-2.5 ${WELL}`}>
-          <span className="text-[13px] text-kumo-default">Nothing to paste.</span>
-          <span className="text-[12px] leading-[1.5] text-kumo-subtle">
-            {webmcp
-              ? "This page offers the board's tools through WebMCP: an agent in this browser can draw on this board as it is open here."
-              : "This page offers the board's tools through WebMCP, for agents built into the browser. This browser doesn't support it yet."}
-          </span>
         </div>
-      ) : (
-        <>
-          <div className={`flex items-start gap-1 p-1 pl-3 ${WELL}`}>
-            <code className="min-w-0 flex-1 select-all break-all py-1.5 font-mono text-[11.5px] leading-[1.55] text-kumo-default">{line.text}</code>
-            <CopyButton text={line.text} label={`the ${agent} line`} quiet />
-          </div>
-          <span className="text-[12px] text-kumo-subtle">{line.say}</span>
-        </>
-      )}
+      </div>
+      <CopyRow key={agent} text={lines[agent]} label={`the ${agent} line`} />
+      {webmcp && <span className="text-[11.5px] text-kumo-subtle">An agent in this browser can already use the board.</span>}
     </div>
   );
 }
 
 export function ShareBar({ board, handed, copied, doc, flush, onLive }: { board?: string; handed?: boolean; copied?: boolean; doc: () => Doc; flush: () => Promise<void>; onLive: (key: string, copied: boolean) => void }) {
-  // (a board that has just arrived at its link from Share, or from a new link, opens with the panel showing)
+  // (a board that has just arrived at its link from Share, or from a new link, opens with the card showing)
   const [open, setOpen] = useState<null | "panel" | "renew">(handed ? "panel" : null);
+  const [menu, setMenu] = useState(false);
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState<string | null>(null);
-  // (just shared: the link was copied for you, and the panel says so)
-  const [fresh, setFresh] = useState(!!copied);
+  // (just shared: the link was copied for you, and its button says so for a moment)
+  const [fresh] = useState(!!copied);
   const nextKey = useRef<string | null>(null);
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!open) return;
-    const away = (e: PointerEvent) => { if (!box.current?.contains(e.target as Node)) { setOpen(null); setFresh(false); } };
-    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") { setOpen(null); setFresh(false); } };
+    const away = (e: PointerEvent) => { if (!box.current?.contains(e.target as Node)) { setOpen(null); setMenu(false); } };
+    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") { if (menu) setMenu(false); else setOpen(null); } };
     window.addEventListener("pointerdown", away);
     window.addEventListener("keydown", esc, true);
     return () => { window.removeEventListener("pointerdown", away); window.removeEventListener("keydown", esc, true); };
-  }, [open]);
+  }, [open, menu]);
 
   const origin = typeof window === "undefined" ? "" : window.location.origin;
   const link = board ? `${origin}/b/${board}` : "";
@@ -121,7 +111,7 @@ export function ShareBar({ board, handed, copied, doc, flush, onLive }: { board?
       const r = await fetch("/api/boards", { method: "POST", body: JSON.stringify(doc()) });
       const { key, error } = (await r.json().catch(() => ({}))) as { key?: string; error?: string };
       if (!key) throw new Error(error ?? "the board could not be shared: try again");
-      // the link is copied on the way (said in the panel only if it really was; a copy that hangs is not waited for)
+      // the link is copied on the way (said only if it really was; a copy that hangs is not waited for)
       const copied = await Promise.race([navigator.clipboard.writeText(`${origin}/b/${key}`).then(() => true, () => false), new Promise<boolean>((ok) => setTimeout(() => ok(false), 500))]);
       onLive(key, copied);
     } catch (e) {
@@ -160,60 +150,60 @@ export function ShareBar({ board, handed, copied, doc, flush, onLive }: { board?
 
   return (
     <div ref={box} className="absolute right-4 top-4 z-40 flex flex-col items-end gap-2" onMouseDown={(e) => { if (!(e.target as HTMLElement).closest("code")) e.preventDefault(); }}>
-      <div className={`flex p-1 ${PANEL}`}>
-        <button
-          className={BTN}
-          disabled={busy && !board}
-          aria-expanded={!!open}
-          onClick={() => (board ? setOpen(open ? null : "panel") : void share())}
-        >
-          {board ? <span className="relative mx-0.5 flex size-2"><span className="absolute inset-0 rounded-full bg-emerald-500" /><span className="absolute inset-0 animate-ping rounded-full bg-emerald-500/60 motion-reduce:animate-none" /></span> : <ShareNetwork size={15} />}
-          {board ? "Shared" : busy ? "Sharing…" : "Share"}
-        </button>
-      </div>
+      <button
+        className={PILL}
+        disabled={busy && !board}
+        aria-expanded={!!open}
+        onClick={() => (board ? setOpen(open ? null : "panel") : void share())}
+      >
+        {board ? <span className="size-2 rounded-full bg-kumo-brand" /> : <ShareNetwork size={15} />}
+        {board ? "Shared" : busy ? "Sharing…" : "Share"}
+      </button>
 
       {open === "panel" && (
-        <div role="dialog" aria-label="Share" className={`ui-in flex w-[min(440px,calc(100vw-32px))] flex-col ${PANEL}`}>
-          {!board ? (
-            <div className="p-4 text-[13px] text-red-600 dark:text-red-400">{failed}</div>
-          ) : (
-            <>
-              <div className="flex flex-col gap-2 p-4 pb-3">
-                <div className="flex items-baseline justify-between gap-2">
-                  <span className="text-[15px] font-semibold text-kumo-default">{fresh ? "Board shared" : "Share this board"}</span>
-                  {fresh && <span className="flex items-center gap-1 text-[12px] font-medium text-emerald-600 dark:text-emerald-400"><Check size={12} weight="bold" /> Link copied</span>}
-                </div>
-                <div className={`flex items-center gap-1 p-1 pl-3 ${WELL}`}>
-                  <code className="min-w-0 flex-1 select-all truncate font-mono text-[12px] text-kumo-default" title={link}>{link.replace(/^https?:\/\//, "")}</code>
-                  <CopyButton text={link} label="link" />
-                </div>
+        !board ? (
+          <LayerCard role="alert" className={`${CARD} p-3.5 text-[13px] text-kumo-danger`}>{failed}</LayerCard>
+        ) : (
+          <LayerCard role="dialog" aria-label="Share" className={CARD}>
+            <LayerCard.Secondary className={STRIP}>
+              <span className="min-w-0 flex-1 truncate">Anyone with the link can see and edit</span>
+              {/* (its centre lines up with the copy buttons' below: both sit 32px in from the card's right edge) */}
+              <div className="relative -my-1 mr-1">
+                <button className={ICON} aria-label="Link options" aria-expanded={menu} onClick={() => setMenu((m) => !m)}><DotsThree size={16} weight="bold" /></button>
+                {menu && (
+                  <div role="menu" className="ui-in absolute right-0 top-9 z-10 w-40 rounded-lg bg-kumo-base p-1 shadow-[0_8px_24px_rgba(0,0,0,0.12)] ring ring-kumo-line">
+                    <button role="menuitem" className="ctl flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[12.5px] text-kumo-default hover:bg-kumo-fill" onClick={() => { setMenu(false); setFailed(null); setOpen("renew"); }}>
+                      <ArrowClockwise size={13} /> New link…
+                    </button>
+                  </div>
+                )}
               </div>
-              <div className="border-t border-kumo-line p-4 pt-3">
-                <Connect origin={origin} board={board} />
+            </LayerCard.Secondary>
+            <LayerCard.Primary className="gap-3.5 p-3.5">
+              <div className="flex flex-col gap-2">
+                <span className="text-[12.5px] font-medium text-kumo-default">Link</span>
+                <CopyRow text={link} shown={link.replace(/^https?:\/\//, "")} label="link" copied={fresh} />
               </div>
-              <div className="flex items-center justify-between gap-2 border-t border-kumo-line px-4 py-2.5">
-                <span className="text-[12px] text-kumo-subtle">Anyone with the link can see and edit it.</span>
-                <button className="ctl flex items-center gap-1 rounded px-1.5 py-1 text-[12px] font-medium text-kumo-subtle hover:bg-black/[0.05] hover:text-kumo-default dark:hover:bg-white/[0.08]" onClick={() => { setFailed(null); setOpen("renew"); }}>
-                  <ArrowClockwise size={12} /> New link
-                </button>
-              </div>
-            </>
-          )}
-        </div>
+              <Connect origin={origin} board={board} />
+            </LayerCard.Primary>
+          </LayerCard>
+        )
       )}
 
       {open === "renew" && (
-        <div role="dialog" aria-label="New link" className={`ui-in flex w-[min(440px,calc(100vw-32px))] flex-col gap-3 p-4 ${PANEL}`}>
-          <span className="text-[15px] font-semibold text-kumo-default">Move to a new link?</span>
-          <span className="text-[13px] leading-[1.5] text-kumo-subtle">The board stays as it is, at a new link. The old link, and agents connected with it, stop working.</span>
-          {failed && <span className="text-[12px] text-red-600 dark:text-red-400">{failed}</span>}
-          <div className="flex justify-end gap-1.5">
-            <button className={BTN} onClick={() => setOpen("panel")}>Cancel</button>
-            <button className="ctl flex h-8 items-center rounded-md bg-red-600 px-3 text-[13px] font-medium text-white hover:bg-red-700 disabled:opacity-50" disabled={busy} onClick={() => void renew()}>
-              {busy ? "Moving…" : "Make a new link"}
-            </button>
-          </div>
-        </div>
+        <LayerCard role="dialog" aria-label="New link" className={CARD}>
+          <LayerCard.Secondary className={STRIP}>New link</LayerCard.Secondary>
+          <LayerCard.Primary className="gap-3 p-3.5">
+            <span className="text-[13px] leading-[1.5] text-kumo-default">The board stays as it is, at a new link. The old link, and agents connected with it, stop working.</span>
+            {failed && <span className="text-[12px] text-kumo-danger">{failed}</span>}
+            <div className="flex justify-end gap-1.5">
+              <button className="ctl h-8 rounded-md px-3 text-[13px] font-medium text-kumo-default hover:bg-kumo-fill" onClick={() => setOpen("panel")}>Cancel</button>
+              <button className="ctl h-8 rounded-md bg-kumo-danger px-3 text-[13px] font-medium text-white hover:brightness-110 disabled:opacity-50" disabled={busy} onClick={() => void renew()}>
+                {busy ? "Moving…" : "Make a new link"}
+              </button>
+            </div>
+          </LayerCard.Primary>
+        </LayerCard>
       )}
     </div>
   );
