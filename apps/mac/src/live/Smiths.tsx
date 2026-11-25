@@ -2,7 +2,7 @@
 // stays by what it works on, saying what it is doing and, when done, what it changed, with Undo for it. Write to it
 // again to go on; close it and it is gone. (Kept where its place on the board falls on screen by hand, as the view moves, like the agents' marks.)
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
-import { ArrowCounterClockwise, ArrowUp, Check, Sparkle, Warning, X } from "@phosphor-icons/react";
+import { ArrowCounterClockwise, Check, KeyReturn, Sparkle, Warning, X } from "@phosphor-icons/react";
 import type { Editor } from "@weld/canvas/editor";
 import type { Box, Id, Rect } from "@weld/canvas/types";
 import { isLive } from "@weld/canvas/types";
@@ -166,7 +166,7 @@ function Bubble({ id, editor }: { id: Id; editor: Editor }) {
       .slice(0, 4)
       .join(", ");
   // what it works on, in a few words: the page, the drawings it was summoned over, or the empty spot
-  const over = f.page ? f.page.url.replace(/^https?:\/\//, "") : labels() || (f.ids.length ? "the selection" : "here");
+  const over = labels() || (f.ids.length ? "the selection" : "here");
   const send = () => {
     const t = text.trim();
     if (!t || running) return;
@@ -211,7 +211,8 @@ function Bubble({ id, editor }: { id: Id; editor: Editor }) {
       <div className="smith-head">
         <Sparkle size={13} weight="fill" className="smith-mark" />
         <span className="smith-name">Smith</span>
-        <span className="smith-over">{over}</span>
+        {/* (what it works on, by name; a page's address is not repeated here, the page is right beside it) */}
+        {!f.page && <span className="smith-over">{over}</span>}
         <button type="button" aria-label="Close the smith" title="Close" className="smith-x ctl" onMouseDown={(e) => e.preventDefault()} onClick={close}>
           <X size={12} />
         </button>
@@ -247,7 +248,7 @@ function Bubble({ id, editor }: { id: Id; editor: Editor }) {
             }}
           />
           <button type="button" aria-label="Send" className="smith-send ctl" disabled={!text.trim() || running} onMouseDown={(e) => e.preventDefault()} onClick={send}>
-            <ArrowUp size={12} weight="bold" />
+            <KeyReturn size={13} weight="bold" />
           </button>
         </div>
       </div>

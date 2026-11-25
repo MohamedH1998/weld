@@ -56,7 +56,7 @@ export default async ({ page, shot }) => {
     return { made, undone, redone: !!s.doc.shapes.r2 && !!s.doc.shapes[t] };
   }, T);
   say(hist.made && hist.undone && hist.redone, "…and undo and redo of later steps keep the card", hist);
-  await page.click('[aria-label="Take this thread off the board"]');
+  await page.click('[aria-label="Close this thread"]');
   await page.waitForTimeout(300);
   const off = await page.evaluate((t) => ({ card: !!window.__editor.store.doc.shapes[t], away: !!window.__editor.store.doc.away?.[t] }), T);
   say(!off.card && off.away, "taken off the board, it is kept in the bar again", off);
@@ -81,7 +81,7 @@ export default async ({ page, shot }) => {
   await page.waitForTimeout(300);
   await page.click("text=Put on the board");
   await page.waitForTimeout(400);
-  await page.click('[aria-label="Take this thread off the board"]');
+  await page.click('[aria-label="Close this thread"]');
   await page.waitForTimeout(1500);
   const still = await page.evaluate((h) => window.weld.thread.get(h).then((t) => ({ status: t.meta.status, away: !!window.__editor.store.doc.away?.[h] })), H);
   say(still.away && still.status === "running", "taken off the board while working, it keeps working", still);

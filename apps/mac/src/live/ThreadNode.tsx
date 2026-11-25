@@ -2,7 +2,7 @@
 // app's own (see electron/agents.mjs), so which lab's agent answers is a
 // choice made per message, not a property of the thread.
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { ArrowLineDown, ArrowsOutSimple, ArrowUp, At, CaretDown, CaretRight, ChatCircle, Check, Folder, FrameCorners, GitFork, Globe, Graph, Minus, NoteBlank, Shapes, Stop, TerminalWindow, X , Image as ImageIcon } from "@phosphor-icons/react";
+import { ArrowsOutSimple, ArrowUp, At, CaretDown, CaretRight, ChatCircle, Check, Folder, FrameCorners, GitFork, Globe, Graph, Minus, NoteBlank, Shapes, Stop, TerminalWindow, X , Image as ImageIcon } from "@phosphor-icons/react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { AgentLogo } from "./AgentLogo";
@@ -200,15 +200,16 @@ export function ThreadNode({ box, editor, active, far }: NodeProps) {
             <GitFork size={14} />
           </button>
         )}
-        {!away && (
-          <button type="button" aria-label="Take this thread off the board" title="Move to the bar" className="live-icon ctl" onMouseDown={(e) => e.preventDefault()} onClick={() => sendThreadAway(editor, box.id)}>
-            <ArrowLineDown size={14} />
-          </button>
-        )}
         {/* minimised, a thread keeps only its title bar (and its place); the same button opens it again */}
         {!away && <button type="button" aria-label={folded ? "Open this thread" : "Minimise this thread"} title={folded ? "Open" : "Minimise"} className="live-icon ctl" onMouseDown={(e) => e.preventDefault()} onClick={() => fold(editor, box.id, !folded)}>
           {folded ? <ArrowsOutSimple size={14} /> : <Minus size={14} weight="bold" />}
         </button>}
+        {/* closed, last, as windows close: off the board, still kept in the bar (nothing of it is lost) */}
+        {!away && (
+          <button type="button" aria-label="Close this thread" title="Close (it stays in the bar)" className="live-icon ctl" onMouseDown={(e) => e.preventDefault()} onClick={() => sendThreadAway(editor, box.id)}>
+            <X size={14} weight="bold" />
+          </button>
+        )}
       </Head>
       {/* folded, the rest is hidden, not taken away: a reply half written is still there when it opens */}
       <div className="contents" style={folded ? { display: "none" } : undefined}>
