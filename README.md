@@ -29,7 +29,7 @@ On a Mac with Apple silicon and macOS 13 or later, in Terminal:
 s=$(curl -fsSL https://raw.githubusercontent.com/MohamedH1998/weld/main/install.sh) && /bin/sh -c "$s"
 ```
 
-That puts the latest Weld in Applications and opens it; run it again to update. Weld runs
+That puts the latest Weld in Applications; open it from there. Run the line again to update. Weld runs
 [Claude Code](https://docs.anthropic.com/en/docs/claude-code) or [Codex](https://github.com/openai/codex); if you have
 neither, it offers to install one the first time it opens. Weld isn't notarized by Apple yet: see the
 [guide](docs/guide.md#install) for what that means and for the other ways to install.

@@ -4,7 +4,7 @@
 #   s=$(curl -fsSL https://raw.githubusercontent.com/MohamedH1998/weld/main/install.sh) && /bin/sh -c "$s"
 #
 # It downloads the release named below, checks it against the SHA-256 written here and its signature, and puts it in
-# Applications (or where Weld already is), then opens it. Run it again to update. It needs no sudo, and the only thing
+# Applications (or where Weld already is). Run it again to update. It needs no sudo, and the only thing
 # on the Mac it ever changes is Weld.app (plus a folder of its own, named .weld-install.*, beside it while it works).
 #
 # Safety, in short:
@@ -100,8 +100,9 @@ main() {
     place "$work/Weld.app" "$target" || fail "something appeared at $target during the install, so it was left as it was."
   fi
 
-  say "Weld is installed: $target"
-  [ "${WELD_NO_OPEN:-}" = 1 ] || open "$target"
+  # (not opened from here: it could have been replaced in the moment since it was checked, and only what was checked
+  # is ever started by this script)
+  say "Weld is installed in $dest. Open it from there (or Spotlight: Weld)."
 }
 
 # On the way out, however it ends. Before the swap, the work folder holds only this run's own copy (whole or half-made)
