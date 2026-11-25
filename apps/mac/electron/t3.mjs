@@ -70,7 +70,7 @@ export function makeT3(o) {
   const ours = (w) => !!w && w.driver === "acpRegistry" && w.config?.source === "local" && w.config?.commandPath === entry().config.commandPath && JSON.stringify(w.config?.commandArgs) === '["acp"]';
   /** Added by hand instead, when Weld can't write the file: T3 Code's own words for it. */
   const byHand = () => ` Add Weld in T3 Code yourself: Settings → Providers → Local ACP command, with the executable ${entry().config.commandPath} and the argument acp.`;
-  const change = (fn) => {
+  const change = (fn, removing = false) => {
     try {
       const was = raw(), s = parse(was);
       const r = fn(s);
@@ -79,7 +79,7 @@ export function makeT3(o) {
       return { ok: true };
     } catch (e) {
       const m = String(e?.message || e).replace(/\.?$/, ".");
-      return { error: /Try again/.test(m) ? m : `${m}${byHand()}` };
+      return { error: /Try again/.test(m) ? m : `${m}${removing ? " Remove Weld in T3 Code yourself: Settings → Providers." : byHand()}` };
     }
   };
   return {
@@ -103,6 +103,6 @@ export function makeT3(o) {
         const w = s.providerInstances?.[ID];
         if (!w || !ours(w)) return { ok: true };
         delete s.providerInstances[ID];
-      }),
+      }, true),
   };
 }
