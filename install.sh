@@ -4,16 +4,16 @@
 #   s=$(curl -fsSL https://raw.githubusercontent.com/MohamedH1998/weld/main/install.sh) && /bin/sh -c "$s"
 #
 # It downloads the release named below, checks it against the SHA-256 written here and its signature, and puts it in
-# Applications (or where Weld already is). Run it again to update. It needs no sudo, and the only thing
-# on the Mac it ever changes is Weld.app (plus a folder of its own, named .weld-install.*, beside it while it works).
+# Applications (or where Weld already is). Run it again to update. It needs no sudo.
 #
 # Safety, in short:
 #   - nothing runs until the whole script has arrived (everything is in main(), called on the last line);
 #   - nothing is installed unless its SHA-256 is the one pinned here and its signature is intact;
-#   - the new copy is made and checked beside the old one, then the two are exchanged in one step by the system
-#     (renameatx_np with RENAME_SWAP), so there is never a moment without a Weld; a first install uses RENAME_EXCL,
-#     which fails rather than touch anything that has appeared at Weld.app;
-#   - it never replaces anything at Weld.app that isn't a sound Weld, and deletes only a sound copy of Weld it made.
+#   - all its work happens in a private temporary folder of yours that no other account can enter; the only thing it
+#     ever does in Applications is one rename of Weld.app, done by the system in a single step (renameatx_np):
+#     RENAME_SWAP to exchange the old Weld for the new one (so there is never a moment without a Weld), or, for a first
+#     install, RENAME_EXCL, which fails rather than touch anything that has appeared there;
+#   - it never replaces anything at Weld.app that isn't the sound Weld it found, and it starts nothing itself.
 
 set -eu
 
@@ -35,8 +35,7 @@ main() {
   [ -x /usr/bin/perl ] || fail "this Mac has no /usr/bin/perl (part of macOS), which the installer uses to swap apps safely."
   is_sha "$SHA256" || fail "there is no Weld release to install yet."
 
-  # (phase: "staging" until the swap is called, after which the work folder is handled by identity, never assumed)
-  tmp="" work="" work_id="" lock="" phase="staging" had="" was="" ours_id=""
+  tmp="" lock="" had="" was="" ours_id=""
   trap cleanup EXIT
   trap 'exit 130' INT
   trap 'exit 143' TERM
@@ -54,78 +53,70 @@ main() {
   mkdir -p "$dest"
   target="$dest/Weld.app"
 
-  # one install at a time into this folder
-  take_lock "$dest/.weld-install.lock"
+  # this run's own folder, private to this account (mktemp makes it 700, inside a temporary folder that is too); it
+  # must be on the same disk as Applications, so the swap is a single rename
+  tmp=$(mktemp -d)
+  [ "$(stat -f %d "$tmp")" = "$(stat -f %d "$dest")" ] || fail "$dest isn't on the same disk as this account's temporary folder, which the installer needs to swap Weld in safely."
 
-  # what is there must be a sound Weld (never a link, never another app that happens to be called Weld)
+  # one install at a time into this folder (mkdir: only one run can make it; if it is there, this run stops)
+  mkdir "$dest/.weld-install.lock" 2>/dev/null || fail "another Weld install is running into $dest. Wait for it to finish; if none is (an earlier one was force-quit), remove the folder $dest/.weld-install.lock and run this again."
+  lock="$dest/.weld-install.lock"
+
+  # what is there must be a sound Weld (never a link, never another app that happens to be called Weld); its identity
+  # on disk is taken first, so only this very folder, still sound, is ever swapped out
   if occupied "$target"; then
-    # (the Weld found here, by its identity on disk, taken before it is checked: only this very folder, still sound,
-    # may be swapped out and deleted)
     was=$(identity "$target")
     [ "$was" != none ] && checked "$target" && [ "$(identity "$target")" = "$was" ] || fail "$target isn't a sound copy of Weld, so it wasn't touched. Move it to the Trash, then run this again."
     had=1
   fi
 
-  # the download, checked against the SHA-256 pinned above before it is even opened
-  tmp=$(mktemp -d)
+  # the download, checked against the SHA-256 pinned above before it is even opened, then unpacked and checked
   from="${WELD_DOWNLOAD:-https://github.com/$REPO/releases/download/v$VERSION}"
   say "Installing Weld ${VERSION}…"
   curl -fL --progress-bar "$from/Weld-$VERSION-arm64.zip" -o "$tmp/Weld.zip" || fail "couldn't download Weld."
   got=$(sha_of "$tmp/Weld.zip") || fail "couldn't check the download, so nothing was installed."
   [ "$got" = "$SHA256" ] || fail "the download isn't the Weld $VERSION this script expects (its checksum differs), so nothing was installed."
-  ditto -x -k "$tmp/Weld.zip" "$tmp/app"
-  checked "$tmp/app/Weld.app" || fail "the download isn't a sound copy of Weld, so nothing was installed."
-
-  # the new copy, made and checked beside the old one, in a folder of this run's own (same disk, for the swap)
-  work=$(mktemp -d "$dest/.weld-install.XXXXXX") || fail "couldn't make a folder in $dest. Your installed Weld is unchanged."
-  work_id=$(identity "$work")
-  ditto "$tmp/app/Weld.app" "$work/Weld.app" || fail "couldn't copy Weld into $dest (is the disk full?). Your installed Weld is unchanged."
-  checked "$work/Weld.app" || fail "the copy in $dest didn't check out. Your installed Weld is unchanged."
-  ours_id=$(identity "$work/Weld.app")
+  ditto -x -k "$tmp/Weld.zip" "$tmp/new"
+  new="$tmp/new/Weld.app"
+  checked "$new" || fail "the download isn't a sound copy of Weld, so nothing was installed."
+  ours_id=$(identity "$new")
 
   running && fail "Weld is open. Quit it (⌘Q), then run this again."
-  # (the staging folder and its copy, looked at once more just before they are used: still the ones this run made)
-  [ "$(identity "$work")" = "$work_id" ] && [ "$(identity "$work/Weld.app")" = "$ours_id" ] && checked "$work/Weld.app" || fail "the new copy changed before it could be installed, so nothing was installed."
 
   if [ -n "$had" ]; then
-    # one step: Weld.app becomes the new copy, and the old one takes its place in the work folder (from the moment the
-    # swap is asked for, cleanup treats it as done: nothing in the work folder is deleted unless it is known)
-    phase="swapped"
-    swap "$work/Weld.app" "$target" || { fail "couldn't swap in the new Weld (macOS may be asking to let your terminal change apps: allow it in System Settings → Privacy & Security → App Management). Your installed Weld is unchanged."; }
-    # (what was swapped out must be the very Weld found before: if anything else had been put there meanwhile, it
-    # goes straight back, in one step again)
-    if [ "$(identity "$work/Weld.app")" != "$was" ] || ! checked "$work/Weld.app"; then
-      swap "$work/Weld.app" "$target" || fail "$target changed during the update and couldn't be swapped back. What was there is at $work/Weld.app."
+    # one step: Weld.app becomes the new copy, and the old one comes to this run's private folder
+    swap "$new" "$target" || fail "couldn't swap in the new Weld (macOS may be asking to let your terminal change apps: allow it in System Settings → Privacy & Security → App Management). Your installed Weld is unchanged."
+    # (what came out must be the very Weld found before, still sound: if anything else had been put there meanwhile,
+    # it goes straight back, in one step again)
+    if [ "$(identity "$new")" != "$was" ] || ! checked "$new"; then
+      swap "$new" "$target" || fail "$target changed during the update and couldn't be swapped back. What was there is at $new; move it back yourself."
       fail "$target changed during the update, so it was put back as it was."
     fi
   else
     # a first install: only into an empty place (it fails, touching nothing, if anything has appeared there)
-    place "$work/Weld.app" "$target" || fail "something appeared at $target during the install, so it was left as it was."
+    place "$new" "$target" || fail "something appeared at $target during the install, so it was left as it was."
   fi
 
-  # (not opened from here: it could have been replaced in the moment since it was checked, and only what was checked
-  # is ever started by this script)
+  # (not opened from here: only what was checked is ever started by this script, and it starts nothing)
   say "Weld is installed in $dest. Open it from there (or Spotlight: Weld)."
 }
 
-# On the way out, however it ends. Before the swap, the work folder holds only this run's own copy (whole or half-made)
-# and goes. After it, it goes only if what is in it is known: the old Weld swapped out, or this run's own copy swapped
-# back, each recognised by its identity on disk. Anything else is kept, and said where.
+# On the way out, however it ends: this run's private folder goes (it holds only the download, the new copy, or the
+# old Weld swapped out), except when an update was refused after something unknown came out of Applications: then it is
+# kept, and said where. The lock is let go.
 cleanup() {
-  # (only the very folder this run made: if something else is at that path now, it is left alone)
-  if [ -n "$work" ] && [ -d "$work" ] && [ ! -L "$work" ] && [ "$(identity "$work")" = "$work_id" ]; then
-    if [ "$phase" = staging ]; then rm -rf "$work"
-    elif [ -z "$(ls -A "$work")" ]; then rmdir "$work"
-    elif [ "$(ls -A "$work")" = Weld.app ] && known "$work/Weld.app"; then rm -rf "$work"
-    else say "weld: kept $work, which holds something the installer didn't expect. Look inside before deleting it." >&2
+  if [ -n "$tmp" ] && [ -d "$tmp" ]; then
+    if [ -e "$tmp/new/Weld.app" ] && ! known "$tmp/new/Weld.app"; then
+      say "weld: kept $tmp, which holds something that came out of $dest unexpectedly. Look inside before deleting it." >&2
+    else
+      rm -rf "$tmp"
     fi
   fi
-  [ -z "$tmp" ] || rm -rf "$tmp"
   [ -z "$lock" ] || rmdir "$lock" 2>/dev/null || true
 }
 
-# whether something in the work folder is known: this run's own copy, or the very Weld found at the start and still a
-# sound Weld (by identity, then checked); a failed lookup is unknown
+# whether something in this run's folder is known: this run's own new copy, or the very Weld found at the start and
+# still sound (by identity, then checked); a failed lookup is unknown
 known() {
   id=$(identity "$1")
   [ "$id" != none ] || return 1
@@ -135,13 +126,6 @@ known() {
 
 # a path's identity on disk (device and inode: the same folder keeps it when renamed or swapped)
 identity() { stat -f '%d:%i' "$1" 2>/dev/null || echo none; }
-
-# The lock: a folder made with mkdir, which only one run can do. If it is already there, the run stops and touches
-# nothing; one left behind by a run that was force-quit is removed by hand (the message says where).
-take_lock() {
-  mkdir "$1" 2>/dev/null || fail "another Weld install is running into $(dirname "$1"). Wait for it to finish; if none is (an earlier one was force-quit), remove the folder $1 and run this again."
-  lock="$1"
-}
 
 # whether anything at all is at a path (a link counts, even a broken one)
 occupied() { [ -e "$1" ] || [ -L "$1" ]; }
