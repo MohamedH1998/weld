@@ -1,0 +1,184 @@
+{
+ "slug": "leader-election",
+ "name": "Leader dies, a follower takes over",
+ "about": "Heartbeats stop, a follower asks for votes and leads.",
+ "shapes": [
+  {
+   "id": "3320124b-df99-49d3-9ce7-3f9d4f321841",
+   "type": "boundary",
+   "label": "cluster",
+   "x": 2871,
+   "y": 2842,
+   "w": 1198,
+   "h": 220
+  },
+  {
+   "id": "555e83f7-b123-4721-8fa4-2f7d480dfe83",
+   "type": "machine",
+   "label": "node-1",
+   "x": 2905,
+   "y": 2886,
+   "w": 240,
+   "h": 112,
+   "detail": "leader",
+   "active": true
+  },
+  {
+   "id": "6b7cdab0-6498-410a-aa09-8083743653a9",
+   "type": "machine",
+   "label": "node-2",
+   "x": 3330,
+   "y": 2886,
+   "w": 240,
+   "h": 112,
+   "detail": "follower"
+  },
+  {
+   "id": "3056fd0e-df23-4c6b-b8ba-0c485b1e3430",
+   "type": "machine",
+   "label": "node-3",
+   "x": 3795,
+   "y": 2886,
+   "w": 240,
+   "h": 112,
+   "detail": "follower"
+  }
+ ],
+ "arrows": [
+  {
+   "id": "77bdb51a-3fd5-49c8-9664-631698daab9d",
+   "a": {
+    "shape": "555e83f7-b123-4721-8fa4-2f7d480dfe83",
+    "side": "e"
+   },
+   "b": {
+    "shape": "6b7cdab0-6498-410a-aa09-8083743653a9",
+    "side": "w"
+   },
+   "head": true,
+   "label": "heartbeat",
+   "flow": true,
+   "d": "M 3153 2942 L 3225.5 2942 Q 3237.5 2942 3249.5 2942 L 3322 2942"
+  },
+  {
+   "id": "4480d746-705d-4a25-8dd8-ee50d7ba5dca",
+   "a": {
+    "shape": "555e83f7-b123-4721-8fa4-2f7d480dfe83",
+    "side": "s"
+   },
+   "b": {
+    "shape": "3056fd0e-df23-4c6b-b8ba-0c485b1e3430",
+    "side": "s"
+   },
+   "head": true,
+   "label": "heartbeat",
+   "flow": true,
+   "d": "M 3025 3006 L 3025 3026 Q 3025 3038 3037 3038 L 3903 3038 Q 3915 3038 3915 3026 L 3915 3006"
+  },
+  {
+   "id": "e03f0cec-3b6a-495e-9a9e-8d2821886a04",
+   "a": {
+    "shape": "6b7cdab0-6498-410a-aa09-8083743653a9",
+    "side": "e"
+   },
+   "b": {
+    "shape": "3056fd0e-df23-4c6b-b8ba-0c485b1e3430",
+    "side": "w"
+   },
+   "head": true,
+   "label": "request vote",
+   "d": "M 3578 2942 L 3670.5 2942 Q 3682.5 2942 3694.5 2942 L 3787 2942"
+  }
+ ],
+ "states": [
+  {
+   "name": "healthy",
+   "states": {
+    "555e83f7-b123-4721-8fa4-2f7d480dfe83": {
+     "active": true,
+     "detail": "leader"
+    },
+    "6b7cdab0-6498-410a-aa09-8083743653a9": {
+     "detail": "follower"
+    },
+    "3056fd0e-df23-4c6b-b8ba-0c485b1e3430": {
+     "detail": "follower"
+    },
+    "77bdb51a-3fd5-49c8-9664-631698daab9d": {
+     "flow": true
+    },
+    "4480d746-705d-4a25-8dd8-ee50d7ba5dca": {
+     "flow": true
+    }
+   }
+  },
+  {
+   "name": "dead",
+   "states": {
+    "555e83f7-b123-4721-8fa4-2f7d480dfe83": {
+     "ghost": true,
+     "detail": "leader"
+    },
+    "6b7cdab0-6498-410a-aa09-8083743653a9": {
+     "detail": "follower"
+    },
+    "3056fd0e-df23-4c6b-b8ba-0c485b1e3430": {
+     "detail": "follower"
+    },
+    "77bdb51a-3fd5-49c8-9664-631698daab9d": {
+     "ghost": true
+    },
+    "4480d746-705d-4a25-8dd8-ee50d7ba5dca": {
+     "ghost": true
+    }
+   }
+  },
+  {
+   "name": "election",
+   "states": {
+    "555e83f7-b123-4721-8fa4-2f7d480dfe83": {
+     "ghost": true,
+     "detail": "leader"
+    },
+    "6b7cdab0-6498-410a-aa09-8083743653a9": {
+     "active": true,
+     "detail": "candidate"
+    },
+    "3056fd0e-df23-4c6b-b8ba-0c485b1e3430": {
+     "detail": "follower"
+    },
+    "77bdb51a-3fd5-49c8-9664-631698daab9d": {
+     "ghost": true
+    },
+    "4480d746-705d-4a25-8dd8-ee50d7ba5dca": {
+     "ghost": true
+    },
+    "e03f0cec-3b6a-495e-9a9e-8d2821886a04": {
+     "pour": true
+    }
+   }
+  },
+  {
+   "name": "new-leader",
+   "states": {
+    "555e83f7-b123-4721-8fa4-2f7d480dfe83": {
+     "ghost": true,
+     "detail": "leader"
+    },
+    "6b7cdab0-6498-410a-aa09-8083743653a9": {
+     "active": true,
+     "detail": "leader"
+    },
+    "3056fd0e-df23-4c6b-b8ba-0c485b1e3430": {
+     "detail": "follower"
+    },
+    "77bdb51a-3fd5-49c8-9664-631698daab9d": {
+     "ghost": true
+    },
+    "4480d746-705d-4a25-8dd8-ee50d7ba5dca": {
+     "ghost": true
+    }
+   }
+  }
+ ]
+}

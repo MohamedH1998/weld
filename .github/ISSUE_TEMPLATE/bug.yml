@@ -1,0 +1,32 @@
+name: Something is wrong
+description: Weld did something it shouldn't have, or didn't do something it should
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead. A screenshot or short recording helps a lot.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Weld version
+      description: Weld → About Weld
+      placeholder: "0.1.0"
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version
+      placeholder: "15.3"
+  - type: input
+    id: agent
+    attributes:
+      label: Agent, if one was involved
+      placeholder: "Claude Code 2.1, Codex 0.40, OpenCode over ACP…"
+  - type: textarea
+    id: log
+    attributes:
+      label: exits.log, if Weld crashed
+      description: From ~/Library/Application Support/Weld/exits.log. It can contain local paths, so look it over first.
+      render: text

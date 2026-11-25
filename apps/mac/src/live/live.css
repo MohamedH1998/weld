@@ -1,0 +1,517 @@
+/* Live things on the board: threads, terminals, pages. They share one
+   sheet, one head and one small set of controls, in the board's own
+   quiet voice. Sizes are in the board's units and scale with the view. */
+:root {
+  --live-paper: #ffffff;
+  --live-ink: #1b1b1c;
+  --live-sub: #77777d;
+  --live-faint: #a3a3a8;
+  --live-line: rgba(0, 0, 0, 0.09);
+  --live-tint: rgba(0, 0, 0, 0.035);
+  --live-tint-2: rgba(0, 0, 0, 0.06);
+  --live-accent: #0b7f57;
+  --live-green: #1e9a55;
+  --live-amber: #c08400;
+  --live-red: #d4483f;
+  --live-mono: "SF Mono", "DM Mono", Menlo, Monaco, ui-monospace, monospace;
+}
+[data-mode="dark"] {
+  --live-paper: #18181b;
+  --live-ink: #e4e4e7;
+  --live-sub: #8e8e96;
+  --live-faint: #63636a;
+  --live-line: rgba(255, 255, 255, 0.1);
+  --live-tint: rgba(255, 255, 255, 0.05);
+  --live-tint-2: rgba(255, 255, 255, 0.09);
+  --live-accent: #2fc896;
+  --live-green: #3fbf78;
+  --live-amber: #e0a526;
+  --live-red: #ef6a61;
+}
+
+.live-node { pointer-events: none; color: var(--live-ink); font-size: 13px; line-height: 20px; border-radius: 12px; box-shadow: 0 8px 28px rgba(15, 15, 20, 0.1); }
+[data-mode="dark"] .live-node { box-shadow: 0 8px 28px rgba(0, 0, 0, 0.5); }
+.live-sheet { background: var(--live-paper); box-shadow: 0 0 0 1px var(--live-line); position: relative; }
+.live-in { animation: live-in 180ms var(--ease) both; }
+@keyframes live-in { from { opacity: 0; transform: scale(0.985); } to { opacity: 1; transform: none; } }
+
+/* the head carries the thing: only its controls take the pointer */
+.live-head { border-bottom: 1px solid var(--live-line); }
+.live-tools, .live-chip, .live-icon { pointer-events: auto; }
+.live-title { font-size: 13px; font-weight: 500; letter-spacing: -0.005em; color: var(--live-ink); }
+.live-meta { font-size: 12px; color: var(--live-sub); font-variant-numeric: tabular-nums; }
+/* a folded thread says how it stands in words, in the colour its dot has */
+.live-fold-state { font-weight: 500; }
+.live-fold-state[data-state="working"] { color: var(--live-accent); }
+.live-fold-state[data-state="ready"] { color: #16a34a; }
+.live-fold-state[data-state="error"] { color: #dc2626; }
+.live-label { font-size: 11px; font-weight: 500; letter-spacing: 0.04em; text-transform: uppercase; color: var(--live-sub); }
+
+/* what is inside takes the pointer only while the thing is the one selected */
+.live-body { pointer-events: none; }
+.is-active .live-body { pointer-events: auto; }
+/* (the far view is the plane's, set as the zoom crosses the line: see LiveLayer) */
+.live-plane:not([data-far]) .far-card, .live-plane:not([data-far]) .far-caption { display: none; }
+.live-plane[data-far] .live-head, .live-plane[data-far] .live-body, .live-plane[data-far] .live-foot { visibility: hidden; }
+/* a page stays in view from far off: it is its own picture */
+.live-plane[data-far] .far-shows .live-body { visibility: visible; pointer-events: none; }
+.live-plane[data-far] .far-shows .live-head { display: none; }
+.far-caption { background: color-mix(in srgb, var(--live-paper) 96%, transparent); color: var(--live-ink); box-shadow: 0 -1px 0 var(--live-line); pointer-events: none; }
+
+.live-dot { width: 7px; height: 7px; border-radius: 99px; flex: none; background: var(--live-faint); opacity: 0.5; }
+.live-dot[data-state="working"] { background: var(--live-accent); opacity: 1; animation: live-pulse 1.4s ease-in-out infinite; }
+.live-dot[data-state="ready"] { background: var(--live-green); opacity: 1; }
+.live-dot[data-state="error"] { background: var(--live-red); opacity: 1; }
+@keyframes live-pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.35; transform: scale(0.8); } }
+
+.live-chip {
+  display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 8px; border-radius: 6px; max-width: 220px;
+  font-size: 12px; font-weight: 450; color: var(--live-sub); white-space: nowrap; background: transparent; flex: none;
+}
+.live-chip > span { overflow: hidden; text-overflow: ellipsis; }
+.live-chip:hover:not(:disabled), .live-chip.is-on { background: var(--live-tint); color: var(--live-ink); }
+.live-icon { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 6px; color: var(--live-sub); flex: none; }
+.live-icon:hover:not(:disabled) { background: var(--live-tint); color: var(--live-ink); }
+.live-icon:disabled { opacity: 0.3; }
+.live-address {
+  width: 100%; height: 26px; padding: 0 10px; border-radius: 7px; background: var(--live-tint); color: var(--live-ink);
+  font-size: 12.5px; outline: none; border: 0; text-overflow: ellipsis; text-align: center; user-select: text;
+}
+.live-address:focus { background: var(--live-paper); box-shadow: 0 0 0 1.5px var(--live-accent); text-align: left; }
+.live-address::placeholder { color: var(--live-faint); }
+.live-row { display: flex; align-items: center; gap: 12px; height: 40px; padding: 0 10px; margin: 0 -10px; border-radius: 8px; pointer-events: auto; }
+.live-row:hover { background: var(--live-tint); }
+.live-loading { position: absolute; left: 0; top: 39px; height: 2px; width: 100%; overflow: hidden; pointer-events: none; }
+.live-loading::after { content: ""; position: absolute; inset: 0; width: 30%; background: var(--live-accent); animation: live-load 1.1s var(--ease) infinite; }
+@keyframes live-load { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
+
+/* seen from far off */
+.far-card[data-roomy] .far-words { justify-content: flex-end; }
+.far-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.far-card[data-roomy] .far-title { -webkit-line-clamp: 3; }
+.far-card:not([data-roomy]) .far-line { display: none; }
+.far-card { background: var(--live-paper); pointer-events: none; box-shadow: 0 0 0 1px var(--live-line); }
+/* a folded thread's far bar may stand taller than the thread: nothing clips it */
+.live-plane[data-far] .live-sheet[data-folded] { overflow: visible; }
+.far-bar { box-shadow: 0 0 0 1px var(--live-line), 0 1px 3px rgb(0 0 0 / 0.06); }
+.far-card[data-state="working"] .far-state { color: var(--live-accent); }
+.far-card[data-state="ready"] .far-state { color: var(--live-green); }
+.far-card[data-state="error"] .far-state { color: var(--live-red); }
+.far-card[data-state="working"] { box-shadow: 0 0 0 1px var(--live-line), inset 0 0 0 3px color-mix(in srgb, var(--live-accent) 22%, transparent); }
+.far-card[data-state="ready"] { box-shadow: 0 0 0 1px var(--live-line), inset 0 0 0 3px color-mix(in srgb, var(--live-green) 30%, transparent); }
+.far-card[data-state="error"] { box-shadow: 0 0 0 1px var(--live-line), inset 0 0 0 3px color-mix(in srgb, var(--live-red) 28%, transparent); }
+
+/* ── a thread ─────────────────────────────────────────────────────── */
+/* A layered card, in Kumo's way: on a light grey layer, a muted strip carries the name and controls, and the
+   conversation and the reply box share one white card set into it, 6px in. The card is drawn behind them (::after), so
+   the conversation's fade at its top fades only the words, never the card's edge. */
+.live-node[data-kind="thread"] {
+  --t-layer: oklch(98.2% 0 0); --t-card: #fff; --t-edge: oklch(92.6% 0 0); --t-card-edge: oklch(91.5% 0 0);
+  --t-recessed: oklch(96.2% 0 0); --t-muted: oklch(52% 0 0);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 12px 32px -12px rgb(15 15 20 / 0.12);
+}
+[data-mode="dark"] .live-node[data-kind="thread"] {
+  --t-layer: oklch(15.5% 0 0); --t-card: oklch(19% 0 0); --t-edge: oklch(25% 0 0); --t-card-edge: oklch(27% 0 0);
+  --t-recessed: oklch(24% 0 0); --t-muted: oklch(68% 0 0);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 12px 32px -12px rgb(0 0 0 / 0.6);
+}
+.live-node[data-kind="thread"] > .live-sheet { background: var(--t-layer); box-shadow: 0 0 0 1px var(--t-edge); }
+.live-node[data-kind="thread"] > .live-sheet::after { content: ""; position: absolute; inset: 42px 6px 6px; background: var(--t-card); box-shadow: 0 0 0 1px var(--t-card-edge); border-radius: 8px; pointer-events: none; }
+.live-node[data-kind="thread"] > .live-sheet[data-folded]::after, .live-plane[data-far] .live-node[data-kind="thread"] > .live-sheet::after { display: none; }
+/* (the name starts where the conversation's words do, 6 + 16 in; the last control's glyph ends where they end) */
+.live-node[data-kind="thread"] .live-head { position: relative; z-index: 1; height: 42px; border-bottom: 0; padding: 0 16px 0 22px; gap: 8px; }
+.live-node[data-kind="thread"] .live-title { color: var(--t-muted); }
+.live-node[data-kind="thread"] .live-icon { color: var(--t-muted); }
+.live-node[data-kind="thread"] .live-icon:hover:not(:disabled) { background: var(--t-recessed); color: var(--live-ink); }
+/* whose it is: the thread's own colour, by its name; working, it breathes; stopped, it is red */
+.live-node[data-kind="thread"] .live-dot { width: 8px; height: 8px; opacity: 1; background: var(--hue, var(--live-accent)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--hue, var(--live-accent)) 16%, transparent); }
+.live-node[data-kind="thread"] .live-dot[data-state="error"] { background: var(--live-red); box-shadow: 0 0 0 3px color-mix(in srgb, var(--live-red) 16%, transparent); }
+.live-node[data-kind="thread"] .thread-scroll, .live-node[data-kind="thread"] .live-foot { position: relative; z-index: 1; margin: 0 7px; }
+.live-node[data-kind="thread"] .thread-scroll { padding: 16px 15px 12px; }
+.live-node[data-kind="thread"] .live-foot { margin-bottom: 7px; padding: 0 9px 9px; }
+.live-node[data-kind="thread"] .prose-live code { background: var(--t-recessed); border-radius: 4px; padding: 1px 4px; font-size: 11.5px; }
+/* what was asked: a soft bubble on the right */
+.live-node[data-kind="thread"] .thread-said { background: var(--t-recessed); border-radius: 8px; padding: 7px 11px; }
+/* the agent's steps, folded: a small chip */
+.live-node[data-kind="thread"] .thread-work { width: fit-content; max-width: 100%; }
+.live-node[data-kind="thread"] .thread-work.thread-step, .live-node[data-kind="thread"] .thread-work > .thread-step:first-child { height: 22px; width: fit-content; margin: 0; padding: 0 8px 0 6px; border-radius: 6px; box-shadow: inset 0 0 0 1px var(--t-edge); background: var(--t-layer); color: var(--t-muted); font-size: 11.5px; }
+.live-node[data-kind="thread"] .thread-work.thread-step:hover, .live-node[data-kind="thread"] .thread-work > .thread-step:first-child:hover { background: var(--t-recessed); color: var(--live-ink); }
+/* the reply box: recessed until it is written in */
+.live-node[data-kind="thread"] .thread-compose { border-color: var(--t-card-edge); border-radius: 8px; background: var(--t-layer); }
+.live-node[data-kind="thread"] .thread-compose:focus-within { background: var(--t-card); border-color: color-mix(in srgb, var(--live-ink) 28%, transparent); box-shadow: 0 0 0 3px var(--t-recessed); }
+.live-node[data-kind="thread"] .thread-send { width: 24px; height: 24px; border-radius: 6px; }
+.live-node[data-kind="thread"] .thread-compose .live-chip { border-radius: 6px; }
+.thread-scroll { overflow-y: auto; overscroll-behavior: contain; user-select: text; -webkit-user-select: text; scrollbar-width: thin; scrollbar-color: var(--live-tint-2) transparent; mask-image: linear-gradient(to bottom, transparent 0, #000 14px); }
+.thread-said { background: var(--live-tint); border-radius: 12px; padding: 8px 12px; white-space: pre-wrap; overflow-wrap: anywhere; max-width: 88%; margin-left: auto; width: fit-content; }
+.thread-note { font-size: 12px; color: var(--live-sub); }
+.thread-error { font-size: 12.5px; color: var(--live-red); background: color-mix(in srgb, var(--live-red) 8%, transparent); border-radius: 8px; padding: 8px 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.thread-work { font-size: 12px; color: var(--live-sub); }
+.thread-step { display: flex; align-items: center; gap: 7px; height: 24px; width: 100%; min-width: 0; border-radius: 6px; padding: 0 6px; margin: 0 -6px; text-align: left; color: var(--live-sub); }
+.thread-step:hover { background: var(--live-tint); color: var(--live-ink); }
+.thread-step code { font-family: var(--live-mono); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.thread-step .verb { flex: none; }
+/* a step that did not work is said quietly: agents try things that fail all the time, and that is not the turn failing */
+.thread-step[data-status="error"] { color: var(--live-sub); }
+.thread-step[data-status="error"] code { text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--live-sub) 50%, transparent); }
+.thread-out { font-family: var(--live-mono); font-size: 11.5px; line-height: 17px; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--live-tint); border-radius: 8px; padding: 8px 10px; margin: 2px 0 6px; max-height: 260px; overflow: auto; color: var(--live-ink); }
+.thread-out .del { color: var(--live-red); display: block; }
+.thread-out .add { color: var(--live-green); display: block; }
+.thread-spin { width: 10px; height: 10px; border-radius: 99px; border: 1.5px solid var(--live-tint-2); border-top-color: var(--live-accent); animation: live-spin 0.7s linear infinite; flex: none; }
+@keyframes live-spin { to { transform: rotate(360deg); } }
+.thread-caret::after { content: ""; display: inline-block; width: 6px; height: 13px; margin-left: 2px; vertical-align: -2px; background: var(--live-accent); border-radius: 1px; animation: live-blink 1s steps(2) infinite; }
+@keyframes live-blink { 50% { opacity: 0; } }
+
+.prose-live { overflow-wrap: anywhere; }
+.prose-live > :first-child { margin-top: 0; }
+.prose-live > :last-child { margin-bottom: 0; }
+.prose-live p, .prose-live ul, .prose-live ol, .prose-live pre, .prose-live table, .prose-live blockquote { margin: 0 0 10px; }
+.prose-live h1, .prose-live h2, .prose-live h3, .prose-live h4 { font-size: 13px; font-weight: 600; margin: 14px 0 6px; letter-spacing: -0.005em; }
+.prose-live h1 { font-size: 15px; }
+.prose-live h2 { font-size: 14px; }
+.prose-live ul, .prose-live ol { padding-left: 18px; }
+.prose-live ul { list-style: disc; }
+.prose-live ol { list-style: decimal; }
+.prose-live li { margin: 2px 0; }
+.prose-live li > p { margin: 0; }
+.prose-live strong { font-weight: 600; }
+.prose-live a { color: var(--live-accent); text-decoration: none; cursor: pointer; }
+.prose-live a:hover { text-decoration: underline; }
+.prose-live code { font-family: var(--live-mono); font-size: 11.5px; background: var(--live-tint); border-radius: 4px; padding: 1px 4px; }
+.prose-live pre { background: var(--live-tint); border-radius: 8px; padding: 10px 12px; overflow-x: auto; line-height: 17px; }
+.prose-live pre code { background: none; padding: 0; }
+.prose-live blockquote { border-left: 2px solid var(--live-line); padding-left: 10px; color: var(--live-sub); }
+.prose-live hr { border: 0; border-top: 1px solid var(--live-line); margin: 12px 0; }
+.prose-live table { border-collapse: collapse; font-size: 12px; display: block; overflow-x: auto; max-width: 100%; }
+.prose-live th, .prose-live td { border-bottom: 1px solid var(--live-line); padding: 5px 10px 5px 0; text-align: left; vertical-align: top; }
+.prose-live th { font-weight: 550; color: var(--live-sub); }
+.prose-live input[type="checkbox"] { margin-right: 6px; }
+
+.thread-compose { border: 1px solid var(--live-line); border-radius: 12px; background: var(--live-paper); transition: box-shadow 120ms var(--ease), border-color 120ms var(--ease); }
+.thread-compose:focus-within { border-color: color-mix(in srgb, var(--live-accent) 55%, transparent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--live-accent) 14%, transparent); }
+.thread-compose textarea { display: block; width: 100%; resize: none; border: 0; outline: none; background: transparent; color: var(--live-ink); font: inherit; padding: 10px 12px 4px; max-height: 180px; user-select: text; }
+.thread-compose textarea::placeholder { color: var(--live-faint); }
+.thread-send { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 99px; background: var(--live-ink); color: var(--live-paper); flex: none; }
+.thread-send:disabled { background: var(--live-tint-2); color: var(--live-faint); opacity: 1; }
+.thread-send[data-stop="1"] { background: var(--live-tint-2); color: var(--live-ink); }
+.thread-todo { font-size: 12px; color: var(--live-sub); display: flex; align-items: baseline; gap: 7px; line-height: 18px; }
+.thread-todo[data-s="completed"] { color: var(--live-faint); text-decoration: line-through; }
+.thread-todo[data-s="in_progress"] { color: var(--live-ink); }
+.live-menu { position: absolute; z-index: 30; min-width: 200px; padding: 5px; border-radius: 12px; background: var(--live-paper); box-shadow: 0 0 0 1px var(--live-line), 0 8px 28px rgba(0, 0, 0, 0.14); pointer-events: auto; }
+.live-menu button { display: flex; width: 100%; align-items: center; gap: 9px; height: 32px; padding: 0 10px; border-radius: 7px; font-size: 12.5px; color: var(--live-ink); text-align: left; white-space: nowrap; }
+.live-menu button:hover:not(:disabled), .live-menu button[data-on] { background: color-mix(in srgb, var(--live-tint) 60%, transparent); }
+/* the one chosen: held lit, a little heavier */
+.live-menu button[aria-current="true"], .live-menu button[aria-current="true"]:hover { background: var(--live-tint); font-weight: 500; }
+.live-menu button:disabled { color: var(--live-faint); }
+.live-menu .sub { color: var(--live-sub); font-size: 11.5px; font-weight: 400; margin-left: auto; padding-left: 24px; }
+.live-menu .sep { height: 1px; background: var(--live-line); margin: 5px 4px; }
+
+/* the terminal's own scrollbar, as quiet as the rest */
+.live-node .xterm-viewport { scrollbar-width: thin; scrollbar-color: var(--live-tint-2) transparent; background: transparent !important; }
+.live-node .xterm { height: 100%; }
+
+@media (prefers-reduced-motion: reduce) {
+  .live-in, .live-dot, .thread-spin, .thread-caret::after, .live-loading::after { animation: none; }
+}
+
+/* ── around the board ─────────────────────────────────────────────── */
+.app-drag { -webkit-app-region: drag; pointer-events: none; }
+.app-drag > * { pointer-events: auto; }
+.app-drag > span { pointer-events: none; }
+.app-no-drag { -webkit-app-region: no-drag; }
+.top-pill {
+  display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border-radius: 8px; font-size: 12px; font-weight: 500;
+  color: var(--live-ink); background: var(--live-paper); box-shadow: 0 0 0 1px var(--live-line), 0 2px 8px rgba(0, 0, 0, 0.04); font-variant-numeric: tabular-nums;
+}
+.top-pill:hover { background: color-mix(in srgb, var(--live-paper) 94%, var(--live-ink)); }
+.top-pill kbd { font: inherit; font-size: 11px; color: var(--live-sub); }
+.top-pill svg { color: var(--live-sub); }
+/* the boards: the one on screen named at the top left, the others in a list under it */
+.board-name-field { height: 28px; width: 220px; padding: 0 10px; border-radius: 8px; border: 0; outline: none; font-size: 12px; font-weight: 500; color: var(--live-ink); background: var(--live-paper); box-shadow: 0 0 0 1.5px var(--live-accent, #0b7f57); user-select: text; }
+.boards-menu { position: absolute; top: 34px; left: 0; width: 280px; padding: 4px; border-radius: 12px; background: var(--live-paper); color: var(--live-ink); box-shadow: 0 0 0 1px var(--live-line), 0 16px 44px rgba(0, 0, 0, 0.16); font-size: 13px; }
+.boards-row { display: flex; align-items: center; width: 100%; border-radius: 8px; }
+.boards-row:hover { background: var(--live-tint); }
+.boards-row[data-on] .boards-pick { font-weight: 600; }
+.boards-pick { display: flex; flex: 1; min-width: 0; align-items: center; gap: 8px; height: 34px; padding: 0 10px; }
+.boards-away { margin-right: 4px; opacity: 0; }
+.boards-row:hover .boards-away { opacity: 0.7; }
+.boards-new { gap: 8px; height: 34px; padding: 0 10px; color: var(--live-sub); border-top: 1px solid var(--live-line); border-radius: 0 0 8px 8px; margin-top: 4px; }
+.boards-new:hover { color: var(--live-ink); }
+.boards-folder { border-radius: 0; }
+.boards-folder + .boards-new { border-top: 0; margin-top: 0; }
+.boards-dir { color: var(--live-sub); }
+.palette { background: var(--live-paper); border-radius: 14px; box-shadow: 0 0 0 1px var(--live-line), 0 24px 70px rgba(0, 0, 0, 0.22); overflow: hidden; color: var(--live-ink); }
+.palette input { display: block; width: 100%; height: 48px; padding: 0 18px; border: 0; outline: none; background: transparent; color: var(--live-ink); font-size: 15px; border-bottom: 1px solid var(--live-line); user-select: text; }
+.palette input::placeholder { color: var(--live-faint); }
+.palette-row { display: flex; align-items: center; gap: 10px; width: 100%; height: 38px; padding: 0 10px; border-radius: 8px; font-size: 13.5px; color: var(--live-ink); }
+.palette-row[data-on] { background: var(--live-tint); }
+
+/* a shell is dark whatever the board is: it reads as a shell, and prompts are drawn for a dark ground */
+.live-shell { --live-paper: #161618; --live-ink: #e4e4e7; --live-sub: #8e8e96; --live-faint: #63636a; --live-line: rgba(255, 255, 255, 0.1); --live-tint: rgba(255, 255, 255, 0.06); --live-tint-2: rgba(255, 255, 255, 0.1); --live-accent: #2fc896; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5); }
+.live-shell .live-head { border-bottom-color: rgba(255, 255, 255, 0.07); }
+
+/* The one thing selected leaves its four corners to the board, so its resize handles can be taken from either side of the edge. */
+.live-node.is-active:not([data-kind="browser"]) .live-sheet {
+  --g: calc(7px / var(--z, 1));
+  clip-path: polygon(var(--g) 0, calc(100% - var(--g)) 0, calc(100% - var(--g)) var(--g), 100% var(--g), 100% calc(100% - var(--g)), calc(100% - var(--g)) calc(100% - var(--g)), calc(100% - var(--g)) 100%, var(--g) 100%, var(--g) calc(100% - var(--g)), 0 calc(100% - var(--g)), 0 var(--g), var(--g) var(--g));
+}
+
+/* the zoom is told only to the few things that size themselves by it, and goes no further down: it changes every frame of a zoom */
+@property --z { syntax: "<number>"; inherits: false; initial-value: 1; }
+@property --s { syntax: "<number>"; inherits: true; initial-value: 1; }
+/* a card's words, scaled as a picture while the zoom moves (see LiveLayer) */
+.far-card > *, .far-caption > * { transform: scale(var(--s)); transform-origin: 0 0; }
+.far-caption > * { transform-origin: 0 50%; }
+/* each live thing is its own layer; while zooming it is scaled as drawn, not drawn again every frame */
+.live-node { contain: layout style; }
+/* what is off screen is not laid out or painted at all: the browser skips it, and a terminal there stops drawing.
+   (What is shown as a card is only hidden, as before: locking it as well was measured, and made zooming far off slower.) */
+.live-body:not(.live-foot) { content-visibility: auto; }
+/* a long thread lays out only the part of it in view */
+.thread-scroll > div > * { content-visibility: auto; contain-intrinsic-size: auto 60px; }
+.live-plane[data-zooming] .live-node { will-change: transform; }
+/* the corners cut round the thing in hand are drawn again at every step of a zoom: while it moves, they are not cut */
+.live-plane[data-zooming] .live-node.is-active .live-sheet { clip-path: none !important; }
+/* a page's still lies under the page; while the zoom is moving the page itself steps aside */
+.page-still { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: fill; pointer-events: none; }
+/* (not the page in hand: a pinch begun over it is passed on by it, and a hidden page is given its input only a few times
+   a second, so the zoom would stall) */
+.live-plane[data-zooming] .live-node:not(.is-active) .has-still webview { visibility: hidden; }
+/* …it is shown through instead: its still stands in for it, and it is not drawn again at every step, but it is not hidden */
+.live-plane[data-zooming] .live-node.is-active .has-still webview { opacity: 0; }
+/* while the board zooms, the next pinch is the board's: it goes to it directly, not by way of a page under the fingers */
+.live-plane[data-zooming] webview { pointer-events: none; }
+.is-asleep.has-still webview { visibility: hidden; }
+/* a page an agent is using is laid out wherever it is, so its presses land (seen only where it would be seen anyway) */
+.live-body[data-used] { content-visibility: visible; }
+.live-body[data-used] webview { visibility: visible !important; }
+.live-plane[data-far] .live-body[data-used] webview, .live-plane[data-zooming] .has-still[data-used] webview, .is-asleep.has-still[data-used] webview { opacity: 0; }
+
+/* ── the agents at work, seen on the board ─────────────────────────── */
+.agent-mark { pointer-events: none; will-change: transform; }
+/* a press: a ring opening out from the tip, once the mark has arrived */
+.agent-press { position: absolute; left: -11px; top: -11px; width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--hue); opacity: 0; animation: agent-press 600ms ease-out 450ms; }
+@keyframes agent-press { 0% { opacity: 0.9; transform: scale(0.3); } 100% { opacity: 0; transform: scale(1.6); } }
+@media (prefers-reduced-motion: reduce) { .agent-press { animation-duration: 1ms; } }
+.agent-arrow { position: absolute; left: -2px; top: -13px; filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.25)); transform-origin: 2px 13px; }
+.agent-tag { position: absolute; left: 11px; bottom: 5px; display: flex; align-items: center; gap: 6px; max-width: min(280px, var(--room, 280px)); height: 22px; padding: 0 8px; border-radius: 11px 11px 11px 4px; background: var(--hue); color: #fff; font-size: 11.5px; line-height: 1; white-space: nowrap; pointer-events: auto; cursor: pointer; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18); }
+.agent-name { font-weight: 600; }
+.agent-doing { overflow: hidden; text-overflow: ellipsis; opacity: 0.92; font-family: "DM Mono", ui-monospace, monospace; font-size: 11px; }
+/* off screen: it waits at the edge, pointing to where it is */
+.agent-mark[data-edge] .agent-arrow { transform: rotate(calc(var(--turn) + 2.55rad)); }
+.agent-mark[data-edge] .agent-tag { max-width: 280px; }
+.agent-mark[data-side^="r"] .agent-tag { left: auto; right: 11px; border-radius: 11px 11px 4px 11px; }
+.agent-mark[data-side$="t"] .agent-tag { bottom: auto; top: 5px; border-radius: 4px 11px 11px 11px; }
+.agent-mark[data-side="rt"] .agent-tag { border-radius: 11px 4px 11px 11px; }
+.agent-peek { width: 310px; padding: 12px 14px; border-radius: 12px; background: var(--live-paper); color: var(--live-ink); box-shadow: 0 0 0 1px var(--live-line), 0 12px 36px rgba(0, 0, 0, 0.16); font-size: 12.5px; line-height: 18px; pointer-events: none; z-index: 5; }
+.agent-mark .agent-peek { position: absolute; left: 11px; top: 8px; }
+/* what a thread kept off the board says, beside its mark for a few seconds, then gone (the thread keeps it) */
+.agent-say { position: absolute; left: 11px; top: 8px; width: 260px; padding: 9px 12px; border-radius: 4px 12px 12px 12px; background: var(--live-paper); color: var(--live-ink); box-shadow: 0 0 0 1px var(--live-line), 0 8px 24px rgba(0, 0, 0, 0.12); font-size: 12.5px; line-height: 18px; pointer-events: none; animation: agent-say 5s ease-in both; }
+.agent-mark[data-side$="t"] .agent-say { top: 34px; }
+.agent-mark[data-side^="r"] .agent-say { left: auto; right: 11px; border-radius: 12px 4px 12px 12px; }
+@keyframes agent-say { 0% { opacity: 0; transform: translateY(4px); } 6%, 75% { opacity: 1; transform: none; } 100% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .agent-say { animation: none; } }
+.agent-mark[data-side$="t"] .agent-peek { top: 34px; }
+.agent-mark[data-peek^="r"] .agent-peek { left: auto; right: 11px; }
+.agent-mark[data-peek$="u"] .agent-peek { top: auto; bottom: 34px; }
+.agent-peek-title { font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-peek-sub { color: var(--live-sub); font-size: 11.5px; margin-top: 1px; }
+.agent-peek-steps { margin-top: 9px; padding-top: 8px; border-top: 1px solid var(--live-line); font-family: "DM Mono", ui-monospace, monospace; font-size: 11px; color: var(--live-sub); }
+.agent-peek-steps > div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-peek-steps > div[data-status="running"] { color: var(--live-ink); }
+.agent-peek-steps > div[data-status="error"] { color: var(--live-red); }
+.agent-peek-said { margin-top: 9px; padding-top: 8px; border-top: 1px solid var(--live-line); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; overflow: hidden; }
+
+/* an agent asking to do something it may not do by itself */
+.thread-ask { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 10px; background: color-mix(in srgb, var(--live-green) 7%, var(--live-paper)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--live-green) 35%, transparent); }
+.thread-ask-what { font-weight: 600; font-size: 12.5px; }
+.thread-ask-code { display: block; max-height: 220px; overflow: auto; font-family: "DM Mono", ui-monospace, monospace; font-size: 11.5px; line-height: 17px; white-space: pre-wrap; word-break: break-word; color: var(--live-ink); }
+.thread-ask-why { font-size: 12px; color: var(--live-sub); }
+.thread-ask-yes, .thread-ask-no { height: 26px; padding: 0 12px; border-radius: 7px; font-size: 12px; font-weight: 500; pointer-events: auto; }
+.thread-ask-yes { background: var(--live-ink); color: var(--live-paper); }
+.thread-ask-no { box-shadow: inset 0 0 0 1px var(--live-line); color: var(--live-ink); }
+.thread-ask-yes:hover { opacity: 0.88; }
+.thread-ask-no:hover { background: var(--live-tint); }
+/* while the zoom moves, a card's scaled words are a layer of their own: moved as a picture, not painted again */
+.live-plane[data-zooming] .far-card > *, .live-plane[data-zooming] .far-caption > * { will-change: transform; }
+
+/* whose it is: a page or a terminal wears the colour of the thread it came from */
+.live-owner { display: inline-flex; align-items: center; gap: 5px; max-width: 180px; height: 22px; padding: 0 8px 0 7px; border-radius: 11px; font-size: 11.5px; font-weight: 500; color: var(--hue); background: color-mix(in srgb, var(--hue) 10%, transparent); pointer-events: auto; flex: none; }
+.live-owner:hover { background: color-mix(in srgb, var(--hue) 18%, transparent); }
+.live-owner-dot { width: 7px; height: 7px; border-radius: 99px; background: var(--hue); flex: none; }
+.live-shell .live-owner { color: color-mix(in srgb, var(--hue) 55%, #fff); background: color-mix(in srgb, var(--hue) 24%, transparent); }
+/* far off, a thread's own colour runs along its top edge, and along the top of everything it made (near, the dot by a
+   thread's name and the owner chip on what it made say whose it is) */
+.live-plane[data-far] .live-node[style*="--hue"] > .live-sheet::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 14px; background: var(--hue); border-radius: 12px 12px 0 0; z-index: 3; pointer-events: none; }
+/* what belongs with the one in hand is outlined in its colour */
+.live-node.is-kin > .live-sheet { box-shadow: 0 0 0 2px var(--kin, var(--hue, var(--live-accent))), 0 0 0 6px color-mix(in srgb, var(--kin, var(--hue, var(--live-accent))) 16%, transparent); }
+/* another thread working in the same folder as the one in hand: a dashed edge (they change the same files) */
+.live-node.is-peer > .live-sheet { outline: 1.5px dashed color-mix(in srgb, var(--live-ink) 45%, transparent); outline-offset: 4px; }
+.live-plane[data-far] .live-node.is-peer > .live-sheet { outline-width: 4px; outline-offset: 10px; }
+
+.thread-still { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--live-sub); padding: 2px 0; }
+.thread-still[data-asking] { color: var(--live-green); font-weight: 500; }
+/* what a thread has left running, out of sight */
+.thread-service { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 4px 0 10px; border-radius: 8px; background: var(--live-tint); font-size: 12px; }
+.thread-service code { font-family: "DM Mono", ui-monospace, monospace; font-size: 11.5px; }
+.thread-diff { max-height: 420px; white-space: pre; overflow: auto; }
+.thread-diff > span { display: block; }
+.thread-diff .hunk { color: var(--live-sub); }
+.thread-changes { display: flex; flex-direction: column; }
+/* what a thread can see, under its name */
+.thread-sees { display: flex; flex-wrap: wrap; gap: 4px; padding: 6px 12px 0; }
+.thread-see { display: inline-flex; align-items: center; height: 22px; max-width: 200px; border-radius: 11px; background: var(--live-tint); color: var(--live-sub); font-size: 11.5px; pointer-events: auto; }
+.thread-see > button { display: inline-flex; align-items: center; gap: 5px; height: 100%; min-width: 0; padding: 0 4px 0 8px; }
+.thread-see > button:last-child { padding: 0 7px 0 3px; opacity: 0.6; }
+.thread-see > button:last-child:hover { opacity: 1; }
+.thread-see:hover { color: var(--live-ink); }
+
+/* every agent at work, under the "working" button */
+.running { position: absolute; top: 44px; right: 12px; width: 360px; border-radius: 12px; background: var(--live-paper); color: var(--live-ink); box-shadow: 0 0 0 1px var(--live-line), 0 16px 44px rgba(0, 0, 0, 0.16); font-size: 12.5px; }
+.running-list { max-height: min(70vh, 520px); overflow-y: auto; padding: 4px; }
+.running-row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border-radius: 8px; line-height: 17px; }
+.running-row:hover { background: var(--live-tint); }
+.running-hue { width: 4px; align-self: stretch; border-radius: 2px; background: var(--hue); flex: none; }
+.running-doing { color: var(--live-sub); font-family: "DM Mono", ui-monospace, monospace; font-size: 11px; }
+.running-doing[data-state="ready"] { color: var(--live-green); font-family: inherit; font-size: 12px; }
+.running-doing[data-state="error"] { color: var(--live-red); font-family: inherit; font-size: 12px; }
+.running-peek { position: absolute; top: 0; right: calc(100% + 8px); }
+
+/* Smiths. The button by what is selected is a small dark pill, iron, like a tool; the smith's card is a layered card
+   like a thread's: its name and what it works on on a muted strip, and what it says, Undo and the reply on a white
+   card set into it. Its working shows in Weld's mint. */
+.smith-summon { height: 26px; margin: -13px 0 0 8px; padding: 0 10px 0 8px; display: inline-flex; align-items: center; gap: 5px; border-radius: 8px; background: var(--live-ink); color: var(--live-paper); font-size: 12px; font-weight: 500; letter-spacing: 0; white-space: nowrap; box-shadow: 0 1px 2px rgb(0 0 0 / 0.12), 0 4px 12px -2px rgb(0 0 0 / 0.18); will-change: transform; transition: scale 120ms var(--ease); }
+.smith-summon:hover { background: color-mix(in srgb, var(--live-ink) 86%, var(--live-paper)); }
+.smith-summon:active { scale: 0.97; }
+.smith-bubble {
+  --t-layer: oklch(98.2% 0 0); --t-card: #fff; --t-edge: oklch(92.6% 0 0); --t-card-edge: oklch(91.5% 0 0); --t-recessed: oklch(96.2% 0 0); --t-muted: oklch(52% 0 0);
+  --live-accent: #0fae7a;
+  width: 300px; margin: -6px 0 0 12px; border-radius: 12px; background: var(--t-layer); box-shadow: 0 0 0 1px var(--t-edge), 0 1px 2px rgb(0 0 0 / 0.04), 0 12px 32px -12px rgb(15 15 20 / 0.18); will-change: transform; font-size: 12.5px; line-height: 18px; color: var(--live-ink);
+}
+[data-mode="dark"] .smith-bubble { --t-layer: oklch(15.5% 0 0); --t-card: oklch(19% 0 0); --t-edge: oklch(25% 0 0); --t-card-edge: oklch(27% 0 0); --t-recessed: oklch(24% 0 0); --t-muted: oklch(68% 0 0); --live-accent: #2fc896; box-shadow: 0 0 0 1px var(--t-edge), 0 12px 32px -12px rgb(0 0 0 / 0.6); }
+/* (the strip's words start where the card's do: 4 + 10 in) */
+.smith-head { display: flex; align-items: center; gap: 6px; height: 34px; padding: 0 6px 0 14px; min-width: 0; }
+.smith-mark { flex: none; color: var(--live-ink); }
+.smith-name { flex: none; font-weight: 600; font-size: 12px; }
+.smith-over { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--t-muted); }
+.smith-x { flex: none; display: grid; place-items: center; width: 22px; height: 22px; border-radius: 6px; color: var(--t-muted); }
+.smith-x:hover { background: var(--t-recessed); color: var(--live-ink); }
+.smith-card { margin: 0 4px 4px; padding: 10px; border-radius: 8px; background: var(--t-card); box-shadow: 0 0 0 1px var(--t-card-edge); display: flex; flex-direction: column; gap: 10px; }
+.smith-line { display: flex; align-items: flex-start; gap: 8px; }
+.smith-state { flex: none; display: grid; place-items: center; width: 14px; height: 18px; }
+.smith-line[data-state="done"] .smith-state { color: var(--live-accent); }
+.smith-line[data-state="error"] .smith-state { color: var(--live-red); }
+.smith-line[data-state="undone"] .smith-state, .smith-line[data-state="undone"] .smith-said { color: var(--t-muted); }
+.smith-said { flex: 1; min-width: 0; max-height: 9em; overflow-y: auto; overscroll-behavior: contain; overflow-wrap: anywhere; }
+.smith-line[data-state="working"] .smith-said { color: var(--t-muted); }
+.smith-took { flex: none; font-size: 11.5px; color: var(--t-muted); font-variant-numeric: tabular-nums; }
+.smith-actions { display: flex; gap: 6px; margin-top: -2px; padding-left: 22px; }
+.smith-act { height: 24px; padding: 0 9px; border-radius: 6px; font-size: 12px; font-weight: 500; color: var(--live-ink); box-shadow: inset 0 0 0 1px var(--t-card-edge); background: var(--t-card); }
+.smith-act:hover { background: var(--t-recessed); }
+.smith-compose { display: flex; align-items: flex-end; gap: 6px; padding: 5px 5px 5px 10px; border-radius: 8px; background: var(--t-layer); box-shadow: inset 0 0 0 1px var(--t-card-edge); transition: box-shadow 120ms var(--ease), background 120ms var(--ease); }
+.smith-compose:focus-within { background: var(--t-card); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--live-ink) 28%, transparent), 0 0 0 3px var(--t-recessed); }
+.smith-input { flex: 1; min-width: 0; align-self: center; resize: none; border: 0; outline: 0; background: transparent; padding: 0; font: inherit; color: var(--live-ink); field-sizing: content; max-height: 120px; }
+.smith-input::placeholder { color: var(--live-faint); }
+.smith-send { flex: none; display: grid; place-items: center; width: 22px; height: 22px; border-radius: 6px; background: var(--live-ink); color: var(--live-paper); }
+.smith-send:disabled { background: var(--t-recessed); color: var(--live-faint); }
+
+/* the empty board: what can be done on it */
+.welcome-go { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 15px; background: var(--live-ink); color: var(--live-paper); flex-shrink: 0; }
+.welcome-go:disabled { opacity: 0.25; }
+@keyframes welcome-in { from { opacity: 0; transform: translateY(6px); } }
+.welcome-tasks { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+.welcome-task { padding: 6px 11px; border-radius: 999px; font-size: 12.5px; color: var(--live-ink); background: var(--live-paper); box-shadow: 0 0 0 1px var(--live-line); }
+.welcome-task:hover { box-shadow: 0 0 0 1px var(--live-sub); }
+/* (at the bottom, above the toolbar: an invitation beside the board, not a page in front of it) */
+.welcome-go { width: 28px; height: 28px; border-radius: 14px; }
+.welcome-task { font-size: 12px; padding: 5px 10px; }
+.welcome-tasks { flex-wrap: nowrap; }
+.welcome-task { white-space: nowrap; }
+/* the bar: asking, what each thread kept off the board is doing, and its conversation when opened */
+.ask-col { width: min(640px, calc(100vw - 32px)); display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.ask-bar { position: relative; width: min(560px, 100%); display: flex; flex-direction: column; gap: 4px; padding: 10px 8px 8px 14px; border-radius: 14px; background: var(--live-paper); box-shadow: 0 0 0 1px var(--live-line), 0 4px 16px rgb(0 0 0 / 0.06); }
+.ask-bar:focus-within { box-shadow: 0 0 0 1px var(--live-accent), 0 4px 16px rgb(0 0 0 / 0.08); }
+.ask-bar textarea { flex: 1; resize: none; border: 0; outline: 0; background: transparent; font: inherit; font-size: 14px; line-height: 1.45; color: var(--live-ink); field-sizing: content; max-height: 160px; padding: 4px 0; }
+.ask-bar textarea::placeholder { color: var(--live-sub); }
+.ask-row { display: flex; align-items: center; gap: 2px; min-width: 0; margin-left: -6px; }
+.ask-folder { max-width: 150px; }
+.ask-menu { bottom: calc(100% + 6px); left: 8px; }
+.ask-capsules { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; max-width: 100%; }
+.ask-capsule { display: flex; align-items: center; gap: 8px; max-width: 100%; min-width: 0; height: 34px; padding: 0 6px 0 12px; border-radius: 999px; background: var(--live-paper); box-shadow: 0 0 0 1px var(--live-line), 0 4px 14px rgb(0 0 0 / 0.07); cursor: pointer; font-size: 12.5px; animation: welcome-in 200ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.ask-capsule:hover { box-shadow: 0 0 0 1px var(--live-sub), 0 4px 14px rgb(0 0 0 / 0.07); }
+.ask-capsule:focus-visible { outline: 2px solid var(--live-accent); outline-offset: 2px; }
+.ask-capsule[data-state="ready"] { box-shadow: 0 0 0 1px color-mix(in srgb, var(--live-amber) 55%, var(--live-line)), 0 4px 14px rgb(0 0 0 / 0.07); background: color-mix(in srgb, var(--live-amber) 7%, var(--live-paper)); }
+.ask-capsule[data-state="ready"] .live-dot { background: var(--live-amber); }
+.ask-capsule .thread-ask-yes, .ask-capsule .thread-ask-no { padding: 3px 10px; }
+.ask-title { font-weight: 500; color: var(--live-ink); white-space: nowrap; }
+.ask-line { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--live-sub); font-family: "DM Mono", ui-monospace, monospace; font-size: 11.5px; padding-right: 6px; }
+.ask-capsule[data-state="ready"] .ask-line { color: var(--live-ink); }
+.ask-more { align-self: center; font-size: 12px; color: var(--live-sub); }
+.ask-reader { width: 100%; display: flex; flex-direction: column; gap: 6px; }
+.ask-reader-acts { display: flex; justify-content: flex-end; gap: 6px; }
+.ask-reader-acts .live-chip { background: var(--live-paper); box-shadow: 0 0 0 1px var(--live-line); }
+.ask-reader .far-card, .ask-reader .far-caption { display: none; }
+.ask-reader-sheet { height: min(560px, calc(100vh - 260px)); border-radius: 14px; box-shadow: 0 0 0 1px var(--live-line), 0 12px 40px rgb(0 0 0 / 0.14); overflow: hidden; background: var(--live-paper); }
+.welcome-trouble { font-size: 12.5px; color: var(--live-red, #dc2626); text-align: center; }
+/* a chip allowed to give way (the folder, the mode) shrinks before the send button is pushed out */
+.live-chip.min-w-0 { flex: 0 1 auto; }
+
+/* an ACP agent's plan, as a checklist */
+.thread-plan { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: var(--live-ink); }
+.thread-plan-step { display: flex; align-items: baseline; gap: 8px; }
+.thread-plan-step.is-done { color: var(--live-sub); text-decoration: line-through; text-decoration-color: var(--live-line); }
+.thread-plan-box { flex: none; display: inline-grid; place-items: center; width: 13px; height: 13px; border-radius: 3px; box-shadow: inset 0 0 0 1px var(--live-line); font-size: 9px; line-height: 1; }
+.thread-plan-step.is-now .thread-plan-box { box-shadow: inset 0 0 0 1px var(--live-accent); color: var(--live-accent); }
+
+/* adding an ACP agent of one's own */
+
+/* an agent's logo, or its initial in a small tile */
+.agent-logo { flex: none; display: inline-block; }
+.agent-initial { display: inline-grid; place-items: center; border-radius: 3px; background: var(--live-tint); box-shadow: inset 0 0 0 1px var(--live-line); color: var(--live-sub); font-weight: 600; line-height: 1; }
+
+/* settings: a sheet over the board */
+.settings { position: absolute; left: 50%; top: 14%; translate: -50% 0; width: min(480px, calc(100vw - 32px)); max-height: 72vh; overflow: auto; padding: 6px 6px 12px; border-radius: 14px; background: var(--live-paper); box-shadow: 0 0 0 1px var(--live-line), 0 20px 60px rgb(0 0 0 / 0.18); color: var(--live-ink); font-size: 13px; }
+.settings-head { display: flex; align-items: center; height: 40px; padding: 0 8px 0 12px; font-size: 14px; }
+.settings-x { margin-left: auto; display: grid; place-items: center; width: 26px; height: 26px; border-radius: 7px; color: var(--live-sub); }
+.settings-x:hover { background: var(--live-tint); color: var(--live-ink); }
+.settings-label { padding: 10px 12px 4px; font-size: 11.5px; color: var(--live-sub); }
+.settings-list { display: flex; flex-direction: column; }
+.settings-row { display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 12px; border-radius: 8px; }
+.settings-row[data-off] { color: var(--live-sub); }
+.settings-row[data-off] .agent-logo { opacity: 0.45; }
+.settings-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.settings-state { font-size: 12px; color: var(--live-sub); }
+.settings-remove { font-size: 12px; color: var(--live-sub); padding: 3px 8px; margin-right: -8px; border-radius: 6px; }
+.settings-remove:hover { background: var(--live-tint); color: var(--live-red); }
+.settings-add { display: flex; gap: 6px; margin: 8px 6px 0; }
+.settings-add input { flex: 1; min-width: 0; height: 34px; padding: 0 11px; border-radius: 9px; background: var(--live-tint); box-shadow: inset 0 0 0 1px var(--live-line); font: 12.5px var(--font-mono, ui-monospace, monospace); color: var(--live-ink); outline: none; }
+.settings-add input::placeholder { font-family: "Inter Variable", Inter, ui-sans-serif, system-ui, sans-serif; color: var(--live-sub); }
+.settings-add input:focus-visible { box-shadow: inset 0 0 0 1.5px var(--live-accent); }
+.settings-go { height: 34px; padding: 0 14px; border-radius: 9px; background: var(--live-ink); color: var(--live-paper); font-size: 12.5px; font-weight: 500; }
+.settings-go:disabled { opacity: 0.3; }
+.settings-error { margin: 8px 12px 0; font-size: 12px; color: var(--live-red); }
+
+/* what is selected, going with the ask */
+.ask-point { gap: 6px; color: var(--live-ink); background: color-mix(in srgb, var(--live-accent) 12%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--live-accent) 35%, transparent); }
+.ask-point button { display: grid; place-items: center; width: 16px; height: 16px; border-radius: 999px; color: var(--live-sub); }
+.ask-point button:hover { color: var(--live-ink); background: var(--live-tint-2); }
+
+/* no agent yet: the two Weld knows, each installed from here (a layered card, like a thread's) */
+.setup, .thread-fix {
+  --t-layer: oklch(98.2% 0 0); --t-card: #fff; --t-edge: oklch(92.6% 0 0); --t-card-edge: oklch(91.5% 0 0); --t-recessed: oklch(96.2% 0 0); --t-muted: oklch(52% 0 0);
+}
+[data-mode="dark"] .setup, [data-mode="dark"] .thread-fix { --t-layer: oklch(15.5% 0 0); --t-card: oklch(19% 0 0); --t-edge: oklch(25% 0 0); --t-card-edge: oklch(27% 0 0); --t-recessed: oklch(24% 0 0); --t-muted: oklch(68% 0 0); }
+.setup { width: min(400px, 100%); display: flex; flex-direction: column; gap: 10px; padding: 14px 6px 6px; border-radius: 14px; background: var(--t-layer); box-shadow: 0 0 0 1px var(--t-edge), 0 4px 16px rgb(0 0 0 / 0.06); animation: welcome-in 200ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.setup-head { padding: 0 10px; }
+.setup-title { font-size: 13px; font-weight: 500; color: var(--live-ink); }
+.setup-card { display: flex; flex-direction: column; border-radius: 10px; background: var(--t-card); box-shadow: 0 0 0 1px var(--t-card-edge); }
+.setup-row { display: flex; align-items: center; gap: 10px; height: 48px; padding: 0 10px; }
+.setup-row + .setup-row { box-shadow: inset 0 1px 0 var(--t-card-edge); }
+.setup-logo { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 8px; background: var(--t-recessed); color: var(--live-ink); }
+.setup-name { flex: 1; min-width: 0; display: flex; flex-direction: column; font-size: 13px; font-weight: 500; color: var(--live-ink); line-height: 1.25; }
+.setup-by { font-size: 11.5px; font-weight: 400; color: var(--t-muted); }
+.setup-go { height: 28px; padding: 0 12px; border-radius: 8px; font-size: 12.5px; font-weight: 500; background: var(--live-ink); color: var(--live-paper); transition: scale 120ms var(--ease); }
+.setup-go:active { scale: 0.97; }
+.setup-go[data-quiet] { background: var(--t-recessed); color: var(--live-sub); }
+/* a thread's agent missing or signed out: the way to fix it, under what it said */
+.thread-fix { display: flex; justify-content: flex-start; margin-top: -2px; }
+.thread-fix .setup-go { height: 26px; font-size: 12px; }

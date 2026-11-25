@@ -1,0 +1,52 @@
+{
+  "name": "@weld/web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite dev --port 3100",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "check": "node checks/cases.mjs && node checks/rotate.mjs && node checks/arrange.mjs && node checks/shapes.mjs && node checks/patterns.mjs && node checks/gold.mjs && node checks/placing.mjs && node checks/anim.mjs && node checks/hide.mjs && node checks/controls.mjs && node checks/moments.mjs && node checks/authoring.mjs && node checks/parity.mjs && node checks/export.mjs && node checks/mobile.mjs && node checks/sweep.mjs && node checks/matrix.mjs",
+    "check:fuzz": "node checks/fuzz.mjs 1 5 300",
+    "check:perf": "node checks/perf.mjs 5000",
+    "import:gold": "node checks/import-gold.mjs",
+    "import:board": "node checks/import-board.mjs",
+    "check:parity": "node checks/parity.mjs"
+  },
+  "dependencies": {
+    "@cloudflare/kumo": "^2.18.1",
+    "@fontsource-variable/figtree": "^5.3.0",
+    "@fontsource-variable/geist": "^5.3.0",
+    "@fontsource-variable/geist-mono": "^5.3.0",
+    "@fontsource-variable/instrument-sans": "^5.3.0",
+    "@fontsource-variable/inter": "^5.2.5",
+    "@fontsource/dm-mono": "^5.3.0",
+    "@fontsource/fragment-mono": "^5.3.0",
+    "@fontsource/inter-tight": "^5.3.0",
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "@phosphor-icons/react": "^2.1.10",
+    "@tailwindcss/vite": "^4.1.18",
+    "@tanstack/react-router": "latest",
+    "@tanstack/react-start": "latest",
+    "@weld/canvas": "workspace:*",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "tailwindcss": "^4.1.18",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.70.1",
+    "@cloudflare/workers-types": "^5.20261121.1",
+    "@resvg/resvg-wasm": "^2.6.2",
+    "@types/node": "^22.10.2",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^6.0.1",
+    "esbuild": "^0.28.2",
+    "fontkit": "^3.0.0",
+    "playwright-core": "^1.65.1",
+    "typescript": "^6.0.2",
+    "vite": "^8.0.0",
+    "wrangler": "^4.166.0"
+  }
+}

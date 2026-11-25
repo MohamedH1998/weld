@@ -1,0 +1,200 @@
+{
+ "slug": "git-add-commit-push",
+ "name": "Add stages, commit records, push shares",
+ "about": "A change moves from the working directory to the remote.",
+ "shapes": [
+  {
+   "id": "aed712c6-fa2a-458a-98ad-ac2ee46c4543",
+   "type": "boundary",
+   "label": "Your machine",
+   "x": 1772,
+   "y": 2430,
+   "w": 356,
+   "h": 574
+  },
+  {
+   "id": "4304d352-2adc-45d1-ad23-500c68215bb4",
+   "type": "panel",
+   "label": "Working directory",
+   "x": 1806,
+   "y": 2474,
+   "w": 288,
+   "h": 104,
+   "detail": "hello.txt modified"
+  },
+  {
+   "id": "9b68cd45-ee09-4b37-a70d-dcfedec44427",
+   "type": "panel",
+   "label": "Staging area",
+   "x": 1830,
+   "y": 2666,
+   "w": 240,
+   "h": 104,
+   "detail": "empty"
+  },
+  {
+   "id": "fbbe0a50-98ec-4d76-8161-b93b5abd1353",
+   "type": "machine",
+   "label": "Local repo",
+   "x": 1830,
+   "y": 2858,
+   "w": 240,
+   "h": 112,
+   "detail": "main · 0 commits"
+  },
+  {
+   "id": "4a081cf6-3033-4d07-a7f9-f42af8ec7ec3",
+   "type": "machine",
+   "label": "Remote",
+   "x": 1830,
+   "y": 3154,
+   "w": 240,
+   "h": 112,
+   "detail": "main · 0 commits"
+  }
+ ],
+ "arrows": [
+  {
+   "id": "17e62b19-746d-4869-8439-f593a2b6d464",
+   "a": {
+    "shape": "4304d352-2adc-45d1-ad23-500c68215bb4",
+    "side": "s"
+   },
+   "b": {
+    "shape": "9b68cd45-ee09-4b37-a70d-dcfedec44427",
+    "side": "n"
+   },
+   "head": true,
+   "label": "git add",
+   "d": "M 1950 2586 L 1950 2610 Q 1950 2622 1950 2634 L 1950 2658"
+  },
+  {
+   "id": "4c64ca88-016c-4223-b8fc-251d3bf160bd",
+   "a": {
+    "shape": "9b68cd45-ee09-4b37-a70d-dcfedec44427",
+    "side": "s"
+   },
+   "b": {
+    "shape": "fbbe0a50-98ec-4d76-8161-b93b5abd1353",
+    "side": "n"
+   },
+   "head": true,
+   "label": "git commit",
+   "d": "M 1950 2778 L 1950 2802 Q 1950 2814 1950 2826 L 1950 2850"
+  },
+  {
+   "id": "0673c3cc-f977-45b1-a325-207d12c2e407",
+   "a": {
+    "shape": "fbbe0a50-98ec-4d76-8161-b93b5abd1353",
+    "side": "s"
+   },
+   "b": {
+    "shape": "4a081cf6-3033-4d07-a7f9-f42af8ec7ec3",
+    "side": "n"
+   },
+   "head": true,
+   "label": "git push",
+   "d": "M 1950 2978 L 1950 3050 Q 1950 3062 1950 3074 L 1950 3146"
+  }
+ ],
+ "states": [
+  {
+   "name": "edited",
+   "states": {
+    "4304d352-2adc-45d1-ad23-500c68215bb4": {
+     "detail": "hello.txt modified"
+    },
+    "9b68cd45-ee09-4b37-a70d-dcfedec44427": {
+     "detail": "empty"
+    },
+    "fbbe0a50-98ec-4d76-8161-b93b5abd1353": {
+     "detail": "main · 0 commits"
+    },
+    "4a081cf6-3033-4d07-a7f9-f42af8ec7ec3": {
+     "detail": "main · 0 commits"
+    }
+   }
+  },
+  {
+   "name": "staged",
+   "states": {
+    "4304d352-2adc-45d1-ad23-500c68215bb4": {
+     "detail": "hello.txt modified"
+    },
+    "9b68cd45-ee09-4b37-a70d-dcfedec44427": {
+     "active": true,
+     "detail": "hello.txt"
+    },
+    "fbbe0a50-98ec-4d76-8161-b93b5abd1353": {
+     "detail": "main · 0 commits"
+    },
+    "4a081cf6-3033-4d07-a7f9-f42af8ec7ec3": {
+     "detail": "main · 0 commits"
+    },
+    "17e62b19-746d-4869-8439-f593a2b6d464": {
+     "pour": true
+    }
+   }
+  },
+  {
+   "name": "committed",
+   "states": {
+    "4304d352-2adc-45d1-ad23-500c68215bb4": {
+     "detail": "clean"
+    },
+    "9b68cd45-ee09-4b37-a70d-dcfedec44427": {
+     "detail": "empty"
+    },
+    "fbbe0a50-98ec-4d76-8161-b93b5abd1353": {
+     "active": true,
+     "detail": "1 commit · ahead 1"
+    },
+    "4a081cf6-3033-4d07-a7f9-f42af8ec7ec3": {
+     "detail": "main · 0 commits"
+    },
+    "4c64ca88-016c-4223-b8fc-251d3bf160bd": {
+     "pour": true
+    }
+   }
+  },
+  {
+   "name": "pushing",
+   "states": {
+    "4304d352-2adc-45d1-ad23-500c68215bb4": {
+     "detail": "clean"
+    },
+    "9b68cd45-ee09-4b37-a70d-dcfedec44427": {
+     "detail": "empty"
+    },
+    "fbbe0a50-98ec-4d76-8161-b93b5abd1353": {
+     "active": true,
+     "detail": "1 commit · ahead 1"
+    },
+    "4a081cf6-3033-4d07-a7f9-f42af8ec7ec3": {
+     "detail": "main · 0 commits"
+    }
+   }
+  },
+  {
+   "name": "pushed",
+   "states": {
+    "4304d352-2adc-45d1-ad23-500c68215bb4": {
+     "detail": "clean"
+    },
+    "9b68cd45-ee09-4b37-a70d-dcfedec44427": {
+     "detail": "empty"
+    },
+    "fbbe0a50-98ec-4d76-8161-b93b5abd1353": {
+     "detail": "1 commit"
+    },
+    "4a081cf6-3033-4d07-a7f9-f42af8ec7ec3": {
+     "active": true,
+     "detail": "1 commit"
+    },
+    "0673c3cc-f977-45b1-a325-207d12c2e407": {
+     "pour": true
+    }
+   }
+  }
+ ]
+}

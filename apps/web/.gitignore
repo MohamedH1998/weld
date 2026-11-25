@@ -1,0 +1,10 @@
+node_modules
+dist
+.output
+.tanstack
+.vinxi
+*.log
+.DS_Store
+checks/shots
+public/inspo/
+.wrangler

@@ -1,0 +1,12 @@
+packages:
+  - apps/*
+  - packages/*
+onlyBuiltDependencies:
+  - electron
+  - esbuild
+  - workerd
+allowBuilds:
+  electron: true
+  esbuild: true
+  workerd: true
+  core-js-pure: false

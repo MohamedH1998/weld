@@ -1,0 +1,15 @@
+node_modules
+dist
+out
+shots
+*.tmp
+.DS_Store
+# signing material and local secrets: never committed
+*.p8
+*.p12
+*.cer
+*.provisionprofile
+.env*
+.wrangler
+.tanstack
+.output

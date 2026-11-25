@@ -1,0 +1,10 @@
+name: An idea
+description: Something Weld could do, or do better
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: What you'd like
+      description: What you were trying to do, and what would have made it easier.
+    validations:
+      required: true

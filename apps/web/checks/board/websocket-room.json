@@ -1,0 +1,99 @@
+{
+ "slug": "websocket-room",
+ "name": "WebSocket room",
+ "about": "Each user opens one connection; a message from one reaches the others.",
+ "shapes": [
+  {
+   "id": "1efc0517-65e4-441c-b211-a81e677748db",
+   "type": "boundary",
+   "label": "Room: lobby",
+   "x": -158,
+   "y": 12456,
+   "w": 316,
+   "h": 182
+  },
+  {
+   "id": "39c30c3b-9ff5-497d-8900-fcff8ce130c3",
+   "type": "card",
+   "label": "User · Tokyo",
+   "x": -566,
+   "y": 12236,
+   "w": 240,
+   "h": 80
+  },
+  {
+   "id": "060156e7-e76b-4157-ac2c-ac4575f62e06",
+   "type": "card",
+   "label": "User · Berlin",
+   "x": -120,
+   "y": 12236,
+   "w": 240,
+   "h": 80
+  },
+  {
+   "id": "5c1ae156-25e5-46fe-9a63-df25002ab998",
+   "type": "card",
+   "label": "User · NYC",
+   "x": 326,
+   "y": 12236,
+   "w": 240,
+   "h": 80
+  },
+  {
+   "id": "0596ceb5-f02b-4a0b-8630-a491aa7511be",
+   "type": "panel",
+   "label": "Durable Object",
+   "x": -124,
+   "y": 12500,
+   "w": 248,
+   "h": 104,
+   "detail": "users = 3"
+  }
+ ],
+ "arrows": [
+  {
+   "id": "32f0e9e1-6c1a-44ae-ae94-4961cacb82eb",
+   "a": {
+    "shape": "39c30c3b-9ff5-497d-8900-fcff8ce130c3",
+    "side": "s"
+   },
+   "b": {
+    "shape": "0596ceb5-f02b-4a0b-8630-a491aa7511be",
+    "side": "n"
+   },
+   "head": false,
+   "ports": true,
+   "d": "M -446 12313 L -446 12390.5 Q -446 12402.5 -434 12402.5 L -74 12402.5 Q -62 12402.5 -62 12414.5 L -62 12492"
+  },
+  {
+   "id": "ea78c387-5efe-45ea-978d-5ed1266c9698",
+   "a": {
+    "shape": "060156e7-e76b-4157-ac2c-ac4575f62e06",
+    "side": "s"
+   },
+   "b": {
+    "shape": "0596ceb5-f02b-4a0b-8630-a491aa7511be",
+    "side": "n"
+   },
+   "head": false,
+   "label": "WebSocket",
+   "ports": true,
+   "d": "M 0 12313 L 0 12390.5 Q 0 12402.5 0 12414.5 L 0 12492"
+  },
+  {
+   "id": "90379c8e-bb87-4206-8f8f-70719ba2ca6d",
+   "a": {
+    "shape": "5c1ae156-25e5-46fe-9a63-df25002ab998",
+    "side": "s"
+   },
+   "b": {
+    "shape": "0596ceb5-f02b-4a0b-8630-a491aa7511be",
+    "side": "n"
+   },
+   "head": false,
+   "ports": true,
+   "d": "M 446 12313 L 446 12390.5 Q 446 12402.5 434 12402.5 L 74 12402.5 Q 62 12402.5 62 12414.5 L 62 12492"
+  }
+ ],
+ "states": []
+}

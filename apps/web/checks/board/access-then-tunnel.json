@@ -1,0 +1,264 @@
+{
+ "slug": "access-then-tunnel",
+ "name": "Access checks identity, then tunnels",
+ "about": "A remote user is verified before the tunnel carries the request.",
+ "shapes": [
+  {
+   "id": "66668794-439d-4256-9905-0c1d6f5c44db",
+   "type": "boundary",
+   "label": "Private network",
+   "x": -54,
+   "y": 2902,
+   "w": 308,
+   "h": 342
+  },
+  {
+   "id": "cab64565-fc0a-4e37-b931-b763e77ec0ac",
+   "type": "card",
+   "label": "Remote user",
+   "x": -20,
+   "y": 2490,
+   "w": 240,
+   "h": 80
+  },
+  {
+   "id": "85a0a6da-81f1-4a99-8235-953ea8aba6db",
+   "type": "panel",
+   "label": "Access",
+   "x": -20,
+   "y": 2658,
+   "w": 240,
+   "h": 104
+  },
+  {
+   "id": "bfd5c9ed-dc1e-4b65-bfeb-e6485ba1dcbd",
+   "type": "panel",
+   "label": "IdP",
+   "x": 422,
+   "y": 2658,
+   "w": 240,
+   "h": 104
+  },
+  {
+   "id": "1541f368-1e4f-4511-bf76-d91d9f0ae5d9",
+   "type": "card",
+   "label": "cloudflared",
+   "x": -20,
+   "y": 2946,
+   "w": 240,
+   "h": 80
+  },
+  {
+   "id": "45a77e31-8fcc-4991-98b4-3791de0c4203",
+   "type": "machine",
+   "label": "Private app",
+   "x": -20,
+   "y": 3098,
+   "w": 240,
+   "h": 112
+  }
+ ],
+ "arrows": [
+  {
+   "id": "2cd4c67d-c33e-4760-b4a9-19e621bf1709",
+   "a": {
+    "shape": "cab64565-fc0a-4e37-b931-b763e77ec0ac",
+    "side": "s"
+   },
+   "b": {
+    "shape": "85a0a6da-81f1-4a99-8235-953ea8aba6db",
+    "side": "n"
+   },
+   "head": false,
+   "label": "WARP",
+   "ports": true,
+   "d": "M 100 2567 L 100 2596.5 Q 100 2608.5 100 2620.5 L 100 2650"
+  },
+  {
+   "id": "7aab4232-2fcd-4459-815d-395e83e4ecaa",
+   "a": {
+    "shape": "85a0a6da-81f1-4a99-8235-953ea8aba6db",
+    "side": "e"
+   },
+   "b": {
+    "shape": "bfd5c9ed-dc1e-4b65-bfeb-e6485ba1dcbd",
+    "side": "w"
+   },
+   "head": false,
+   "label": "identity",
+   "d": "M 228 2710 L 309 2710 Q 321 2710 333 2710 L 414 2710"
+  },
+  {
+   "id": "9cd626e3-7986-4722-9aa4-32a8342f4f70",
+   "a": {
+    "shape": "85a0a6da-81f1-4a99-8235-953ea8aba6db",
+    "side": "s"
+   },
+   "b": {
+    "shape": "1541f368-1e4f-4511-bf76-d91d9f0ae5d9",
+    "side": "n"
+   },
+   "head": false,
+   "label": "tunnel",
+   "ports": true,
+   "d": "M 100 2770 L 100 2847.5 Q 100 2859.5 100 2871.5 L 100 2949"
+  },
+  {
+   "id": "d1566e5f-b169-41ad-ae39-0a22eab1ec1b",
+   "a": {
+    "shape": "1541f368-1e4f-4511-bf76-d91d9f0ae5d9",
+    "side": "s"
+   },
+   "b": {
+    "shape": "45a77e31-8fcc-4991-98b4-3791de0c4203",
+    "side": "n"
+   },
+   "head": false,
+   "d": "M 100 3023 L 100 3044.5 Q 100 3056.5 100 3068.5 L 100 3090"
+  }
+ ],
+ "states": [
+  {
+   "name": "idle",
+   "states": {
+    "85a0a6da-81f1-4a99-8235-953ea8aba6db": {
+     "detail": ""
+    },
+    "45a77e31-8fcc-4991-98b4-3791de0c4203": {
+     "detail": ""
+    },
+    "2cd4c67d-c33e-4760-b4a9-19e621bf1709": {
+     "ports": true
+    },
+    "9cd626e3-7986-4722-9aa4-32a8342f4f70": {
+     "ports": true
+    }
+   }
+  },
+  {
+   "name": "request",
+   "states": {
+    "cab64565-fc0a-4e37-b931-b763e77ec0ac": {
+     "active": true
+    },
+    "85a0a6da-81f1-4a99-8235-953ea8aba6db": {
+     "active": true,
+     "detail": "who is this?"
+    },
+    "45a77e31-8fcc-4991-98b4-3791de0c4203": {
+     "detail": ""
+    },
+    "2cd4c67d-c33e-4760-b4a9-19e621bf1709": {
+     "ports": true,
+     "pour": true
+    },
+    "9cd626e3-7986-4722-9aa4-32a8342f4f70": {
+     "ports": true
+    }
+   }
+  },
+  {
+   "name": "verify",
+   "states": {
+    "85a0a6da-81f1-4a99-8235-953ea8aba6db": {
+     "detail": "who is this?"
+    },
+    "bfd5c9ed-dc1e-4b65-bfeb-e6485ba1dcbd": {
+     "active": true
+    },
+    "45a77e31-8fcc-4991-98b4-3791de0c4203": {
+     "detail": ""
+    },
+    "2cd4c67d-c33e-4760-b4a9-19e621bf1709": {
+     "ports": true
+    },
+    "7aab4232-2fcd-4459-815d-395e83e4ecaa": {
+     "pour": true
+    },
+    "9cd626e3-7986-4722-9aa4-32a8342f4f70": {
+     "ports": true
+    }
+   }
+  },
+  {
+   "name": "allowed",
+   "states": {
+    "85a0a6da-81f1-4a99-8235-953ea8aba6db": {
+     "active": true,
+     "detail": "allowed"
+    },
+    "bfd5c9ed-dc1e-4b65-bfeb-e6485ba1dcbd": {
+     "mark": "ok"
+    },
+    "45a77e31-8fcc-4991-98b4-3791de0c4203": {
+     "detail": ""
+    },
+    "2cd4c67d-c33e-4760-b4a9-19e621bf1709": {
+     "ports": true
+    },
+    "7aab4232-2fcd-4459-815d-395e83e4ecaa": {
+     "pour": "reverse"
+    },
+    "9cd626e3-7986-4722-9aa4-32a8342f4f70": {
+     "ports": true
+    }
+   }
+  },
+  {
+   "name": "tunnel",
+   "states": {
+    "85a0a6da-81f1-4a99-8235-953ea8aba6db": {
+     "detail": "allowed"
+    },
+    "bfd5c9ed-dc1e-4b65-bfeb-e6485ba1dcbd": {
+     "mark": "ok"
+    },
+    "1541f368-1e4f-4511-bf76-d91d9f0ae5d9": {
+     "active": true
+    },
+    "45a77e31-8fcc-4991-98b4-3791de0c4203": {
+     "active": true,
+     "detail": "200 OK"
+    },
+    "2cd4c67d-c33e-4760-b4a9-19e621bf1709": {
+     "ports": true
+    },
+    "9cd626e3-7986-4722-9aa4-32a8342f4f70": {
+     "ports": true,
+     "pour": true
+    },
+    "d1566e5f-b169-41ad-ae39-0a22eab1ec1b": {
+     "pour": true
+    }
+   }
+  },
+  {
+   "name": "reply",
+   "states": {
+    "cab64565-fc0a-4e37-b931-b763e77ec0ac": {
+     "active": true
+    },
+    "85a0a6da-81f1-4a99-8235-953ea8aba6db": {
+     "detail": "allowed"
+    },
+    "bfd5c9ed-dc1e-4b65-bfeb-e6485ba1dcbd": {
+     "mark": "ok"
+    },
+    "45a77e31-8fcc-4991-98b4-3791de0c4203": {
+     "detail": "200 OK"
+    },
+    "2cd4c67d-c33e-4760-b4a9-19e621bf1709": {
+     "ports": true,
+     "pour": "reverse"
+    },
+    "9cd626e3-7986-4722-9aa4-32a8342f4f70": {
+     "ports": true,
+     "pour": "reverse"
+    },
+    "d1566e5f-b169-41ad-ae39-0a22eab1ec1b": {
+     "pour": "reverse"
+    }
+   }
+  }
+ ]
+}

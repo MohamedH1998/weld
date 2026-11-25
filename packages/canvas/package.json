@@ -1,0 +1,20 @@
+{
+  "name": "@weld/canvas",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Weld's canvas engine: the board, its shapes and wires, and diagrams that play through their moments",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    "./*": "./src/*.ts",
+    "./catalogue.json": "./src/catalogue.json",
+    "./GUIDE.md": "./src/GUIDE.md"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.2",
+    "vite": "^8.0.0"
+  }
+}
