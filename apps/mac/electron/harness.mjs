@@ -75,8 +75,8 @@ export function makeCatalog(o) {
   };
   const list = () => {
     const out = [
-      { id: "claude", name: "Claude", kind: "native", installed: !!process.env.WELD_DEMO_AGENT || !!o.which("claude"), modes: ["full", "edits", "plan"] },
-      { id: "codex", name: "Codex", kind: "native", installed: !!process.env.WELD_DEMO_AGENT || !!o.which("codex"), modes: ["full", "edits", "plan"] },
+      { id: "claude", name: "Claude", kind: "native", installed: !!process.env.WELD_DEMO_AGENT || !!o.which("claude"), modes: ["full", "edits"] },
+      { id: "codex", name: "Codex", kind: "native", installed: !!process.env.WELD_DEMO_AGENT || !!o.which("codex"), modes: ["full", "edits"] },
     ];
     for (const [fid, f] of Object.entries(FLAVORS)) {
       const bin = f.bins.map((b) => resolve(b)).find(Boolean) ?? null;
@@ -94,7 +94,7 @@ export function makeCatalog(o) {
     if (typeof agent !== "string") return null;
     // a stand-in (WELD_DEMO_AGENT, a scripted ACP agent): Claude and Codex give the same turn every time, for recordings
     const demo = process.env.WELD_DEMO_AGENT;
-    if (demo && (agent === "claude" || agent === "codex")) return { id: agent, name: agent === "codex" ? "Codex" : "Claude", command: process.execPath, args: [demo], env: { ELECTRON_RUN_AS_NODE: "1", WELD_DEMO_AS: agent }, flavor: null, modes: ["full", "edits", "plan"], key: hash(["demo", agent]) };
+    if (demo && (agent === "claude" || agent === "codex")) return { id: agent, name: agent === "codex" ? "Codex" : "Claude", command: process.execPath, args: [demo], env: { ELECTRON_RUN_AS_NODE: "1", WELD_DEMO_AS: agent }, flavor: null, modes: ["full", "edits"], key: hash(["demo", agent]) };
     if (agent.startsWith("acp:")) {
       const fid = agent.slice(4), f = FLAVORS[fid];
       if (!f) return { missing: `${agent} is not an agent Weld knows` };

@@ -78,8 +78,7 @@ export function decide({ request, known, mode, cwd }) {
     return id ? { optionId: id } : { outcome: "cancelled" };
   };
   const cls = SAFE.has(kind) ? "safe" : WRITE.has(kind) ? "write" : "unknown";
-  if (mode === "plan") return cls === "safe" ? allow() : { do: "deny", ...deny(), why: "Plan changes nothing" };
-  if (mode === "edits") {
+  if (mode !== "full") {
     if (cls === "safe") return allow();
     if (cls === "write" && inside(step, cwd)) return allow();
     // asked of the person; whether Allow is possible at all is known now

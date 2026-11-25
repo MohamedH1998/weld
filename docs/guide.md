@@ -39,7 +39,7 @@ Everything Weld starts is given a `weld` command. Agents are told about it, and 
 
 | Agent | How it runs |
 | --- | --- |
-| **Claude Code**, **Codex** | With **Full access**, **Edits only** or **Plan**. Not installed? Weld offers to install either one, in a terminal on the board, then asks you to sign in |
+| **Claude Code**, **Codex** | With **Full access** or **Edits only**. Not installed? Weld offers to install either one, in a terminal on the board, then asks you to sign in |
 | **Cursor, OpenCode, Grok, Kiro, Antigravity, fx, Pi** | Found by themselves once their command-line tool is installed (`cursor-agent`, `opencode`, `grok`, `kiro-cli`, `agy`, `fx`, `pi-acp`). Early support: Full access only, until each has been checked against the real agent |
 | **Any other agent** | In **Settings**, add it by the command that starts it. Keys go in as references to your shell's variables (`API_KEY=$MY_API_KEY`), so Weld never stores a secret |
 
@@ -71,8 +71,8 @@ it off again.
 
 - Weld keeps everything on your Mac and sends nothing anywhere of its own accord. The agents you run, and the pages you
   open, use the network as they always do.
-- An agent in **Full access** (the default for a new thread) can do anything you can. **Edits only** and **Plan** narrow
-  that for Claude Code and Codex. Choose a thread's folder and mode with care.
+- An agent in **Full access** (the default for a new thread) can do anything you can. **Edits only** narrows
+  that for Claude Code and Codex: it edits files in the thread's folder and asks before anything else. Choose a thread's folder and mode with care.
 - Work started from an empty board goes in a folder of its own under `~/Weld/scratch`, never your home folder.
 - Pages run in a separate, sandboxed session with no access to Weld itself.
 

@@ -10,10 +10,9 @@ import path from "node:path";
 
 /** A thread's mode, as Codex's sandbox and approval policy. */
 export function codexPolicy(mode, cwd) {
-  if (mode === "plan") return { sandbox: "read-only", approvalPolicy: "never", sandboxPolicy: { type: "readOnly", networkAccess: false } };
-  if (mode === "edits")
-    return { sandbox: "workspace-write", approvalPolicy: "on-request", sandboxPolicy: { type: "workspaceWrite", writableRoots: cwd ? [cwd] : [], networkAccess: false, excludeTmpdirEnvVar: false, excludeSlashTmp: false } };
-  return { sandbox: "danger-full-access", approvalPolicy: "never", sandboxPolicy: { type: "dangerFullAccess" } };
+  if (mode === "full") return { sandbox: "danger-full-access", approvalPolicy: "never", sandboxPolicy: { type: "dangerFullAccess" } };
+  // (anything else is Edits only: full access only when the thread says so)
+  return { sandbox: "workspace-write", approvalPolicy: "on-request", sandboxPolicy: { type: "workspaceWrite", writableRoots: cwd ? [cwd] : [], networkAccess: false, excludeTmpdirEnvVar: false, excludeSlashTmp: false } };
 }
 const shellOf = (cmd) => String(cmd || "").replace(/^\/bin\/(?:zsh|bash|sh) -lc (['"])([\s\S]*)\1$/, "$2");
 

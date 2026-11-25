@@ -8,7 +8,7 @@ reply within a week.
 
 Weld runs coding agents, shells and web pages as you. In particular:
 
-- An agent in **Full access** can read and change any file you can and run any command. Edits only and Plan narrow
+- An agent in **Full access** can read and change any file you can and run any command. Edits only narrows
   that for Claude and Codex; ACP agents run in Full access only.
 - The `weld` command that agents use reaches Weld over a local port, with a key per conversation that Weld hands only
   to the processes it starts.

@@ -190,7 +190,6 @@ function openDoor() {
         if (show) command = command.replace(/^--show\s+/, "");
         if (!command) return done(400, "usage: weld run [--show] <command>\n");
         // a thread that may only read and propose does not get to run things by asking the board instead
-        if (from && threads.all.has(from) && threads.modeNow(from) === "plan") return done(403, "weld: this thread is in Plan mode and may not run commands\n");
         // A thread's long-running command (a server, a watcher) runs out of sight, kept by the app and listed on the thread:
         // a terminal on the board is for something the person means to watch. (A command asked for from a shell, not a thread, is shown.)
         if (!show && from && threads.all.has(from)) {
@@ -207,7 +206,6 @@ function openDoor() {
       }
       if (req.url === "/draw") {
         if (!threads.all.has(from)) return done(400, "weld: draw is for a conversation on the board\n");
-        if (threads.all.has(from) && threads.modeNow(from) === "plan") return done(403, "weld: this thread is in Plan mode and may not change the board\n");
         let ops;
         try {
           ops = JSON.parse(q.get("ops") || "");
@@ -240,7 +238,6 @@ function openDoor() {
       if (req.url === "/click" || req.url === "/type") {
         // the agent uses a page it opened or was shown, as the person would: its mark goes there and presses
         if (!threads.all.has(from)) return done(400, `weld: ${req.url.slice(1)} is for a conversation on the board\n`);
-        if (threads.modeNow(from) === "plan") return done(403, "weld: this thread is in Plan mode and may not use pages\n");
         const what = q.get(req.url === "/click" ? "target" : "text") || "";
         if (!what.trim()) return done(400, req.url === "/click" ? "usage: weld click [#page] '<what to click>'\n" : "usage: weld type [#page] '<text>'\n");
         void useFor(from, q.get("page") || "", req.url === "/click" ? { click: what.trim() } : { type: what }).then((text) => done(200, text), (e) => done(400, `weld: ${e?.message || e}\n`));
@@ -433,10 +430,10 @@ const acpBoard = {
     if (!threads.get(id).meta.acpMade) {
       const s = readJson(file("settings.json"), {});
       const all = catalog.list();
-      const mode0 = ["full", "edits", "plan"].includes(s.mode) ? s.mode : "full";
+      const mode0 = ["full", "edits"].includes(s.mode) ? s.mode : "full";
       const ok = (a) => all.some((x) => x.id === a && x.installed && x.modes.includes(mode0));
       const agent = s.agent && ok(s.agent) ? s.agent : which("claude") ? "claude" : which("codex") ? "codex" : (all.find((x) => x.installed && x.kind !== "native")?.id ?? "claude");
-      threads.set(id, { cwd, agent, mode: ["full", "edits", "plan"].includes(s.mode) ? s.mode : "full" });
+      threads.set(id, { cwd, agent, mode: ["full", "edits"].includes(s.mode) ? s.mode : "full" });
       // (made from T3 Code, which has it already: it is not offered to T3 Code again for import)
       threads.meta(id, { acpMade: true });
     }
@@ -1110,8 +1107,6 @@ const byTurns = (id, fn) => {
   void tail.then(() => pageTurns.get(id) === tail && pageTurns.delete(id));
   return go;
 };
-/** Each time a thread is put in Plan mode, counted. */
-const planned = new Map();
 /** Each page's document, counted: a new one (a reload, or going elsewhere) is a new number. */
 const docGen = new Map();
 /** What a page says about itself, checked here: it runs in a world of its own (the page cannot change how it is
@@ -1130,7 +1125,6 @@ const inspect = (wc, js) =>
     return { x, y, what: String(r.what ?? "").slice(0, 80) };
   });
 async function useFor(thread, page, act) {
-  const plans = planned.get(thread) ?? 0;
   const pages = await pagesFor(thread);
   const id = page.replace(/^#/, "");
   const p = id ? pages.find((x) => x.id === id) : pages.length === 1 ? pages[0] : null;
@@ -1143,26 +1137,24 @@ async function useFor(thread, page, act) {
     // one let go long ago is loaded again)
     send("board:using", { at: p.id, on: true });
     try {
-      return await useNow(await pageNow(thread, p.id), p, thread, act, plans);
+      return await useNow(await pageNow(thread, p.id), p, thread, act);
     } finally {
       send("board:using", { at: p.id, on: false });
     }
   });
 }
-/** The page's process, once it is there and loaded; and the thread still allowed it (and not in Plan mode). */
+/** The page's process, once it is there and loaded; and the thread still allowed it. */
 async function pageNow(thread, id) {
   for (let i = 0; ; i++) {
-    if (threads.modeNow(thread) === "plan") throw new Error("this thread is in Plan mode and may not use pages");
     const q = (await pagesFor(thread)).find((x) => x.id === id);
     if (!q) throw new Error(`#${id} is no longer a page this conversation can use`);
-    if (threads.modeNow(thread) === "plan") throw new Error("this thread is in Plan mode and may not use pages");
     const wc = q.webContentsId ? webContents.fromId(q.webContentsId) : null;
     if (wc && !wc.isDestroyed() && !wc.isLoading()) return wc;
     if (i >= 40) throw new Error(`the page #${id} did not load in time`);
     await quietly(300);
   }
 }
-async function useNow(wc, p, thread, act, plans) {
+async function useNow(wc, p, thread, act) {
   // the person is using it: they come first
   for (let i = 0; Date.now() - (touchedAt.get(wc.id) ?? 0) < 1500; i++) {
     if (i > 40) throw new Error("the person is using this page just now; try again in a moment");
@@ -1171,7 +1163,6 @@ async function useNow(wc, p, thread, act, plans) {
   const since = Date.now(), gen = docGen.get(wc.id) ?? 0;
   // (what can be told at once, without asking the board: checked again after every look at the page, before pressing)
   const now = () => {
-    if (threads.modeNow(thread) === "plan" || (planned.get(thread) ?? 0) !== plans) throw new Error("this thread was put in Plan mode; nothing more was done");
     if ((touchedAt.get(wc.id) ?? 0) >= since) throw new Error("the person began using the page; it is left to them");
     if ((docGen.get(wc.id) ?? 0) !== gen || wc.isDestroyed()) throw new Error("the page changed to another document meanwhile; nothing more was done");
   };
@@ -1767,11 +1758,7 @@ function wire() {
   ipcMain.on("thread:warm", (_e, id) => void envReady.then(() => threads.warm(id)));
   // (asked in turn behind a start that is still waiting for the environment, so a stop cannot overtake it)
   ipcMain.handle("thread:stop", async (_e, id) => (await envReady, threads.stop(id)));
-  ipcMain.handle("thread:set", (_e, id, change) => {
-    // (put in Plan even for a moment: what it was doing on a page stops, though it is let out again)
-    if (change?.mode === "plan") planned.set(id, (planned.get(id) ?? 0) + 1);
-    return threads.set(id, change);
-  });
+  ipcMain.handle("thread:set", (_e, id, change) => threads.set(id, change));
   ipcMain.handle("thread:seen", (_e, id) => {
     threads.seen(id);
     refreshBadge();

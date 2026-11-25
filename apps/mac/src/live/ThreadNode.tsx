@@ -84,7 +84,6 @@ function Sees({ editor, id }: { editor: NodeProps["editor"]; id: Id }) {
 const MODES: Record<Mode, { name: string; sub: string }> = {
   full: { name: "Full access", sub: "Runs and edits without asking" },
   edits: { name: "Edits only", sub: "Edits files; asks before anything else" },
-  plan: { name: "Plan", sub: "Reads and proposes, changes nothing" },
 };
 
 function useNow(on: boolean) {

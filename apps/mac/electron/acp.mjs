@@ -16,7 +16,6 @@ const PAGE = 100;
 
 const MODES = [
   { id: "default", name: "Default", description: "Uses the thread's mode in Weld" },
-  { id: "plan", name: "Plan", description: "Reads and proposes, changes nothing" },
 ];
 const modesOf = (mode) => ({ currentModeId: mode, availableModes: MODES });
 // (the agent and model are the thread's own, chosen in Weld; T3 Code is shown one model so its picker has a name)
@@ -495,7 +494,7 @@ class Conn {
         // this client follows the turn from its very first step (a turn can fail as it is let in: that is told too)
         const ctl = { conn: this, sid: s.id, turn: null, req: id };
         this.host.controllers.set(s.id, ctl);
-        const r = this.threads.startFor(s.id, { text, mode: s.mode });
+        const r = this.threads.startFor(s.id, { text });
         if (!r.ok) {
           this.host.controllers.delete(s.id);
           throw Object.assign(new Error(r.reason), { code: -32000 });

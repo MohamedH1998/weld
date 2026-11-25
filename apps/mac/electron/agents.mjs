@@ -42,9 +42,9 @@ export function placeOf(cwd) {
   return place;
 }
 
-const MODES = ["full", "edits", "plan"];
+const MODES = ["full", "edits"];
 /** A thread's mode, as Claude Code's permission mode: full access only when it says so. */
-const claudeMode = (mode) => (mode === "full" || mode === undefined ? "bypassPermissions" : mode === "edits" ? "acceptEdits" : "plan");
+const claudeMode = (mode) => (mode === "full" || mode === undefined ? "bypassPermissions" : "acceptEdits");
 
 const CANVAS_NOTE =
   "You are running inside Weld, an infinite canvas the person shares with you: this conversation is one card on it, among terminals, live browser pages, drawings and other agents' conversations. " +
@@ -130,13 +130,10 @@ export class Threads {
     if (!m) this.reserved.set(id, (m = new Map()));
     m.set(turn, { mode, stopped: false });
   }
-  /** The mode a thread's work is under right now: Plan if any turn holding it is in Plan, else its latest turn's. */
+  /** The mode a thread's work is under right now: its latest turn's, else the thread's. */
   modeNow(id) {
     const m = this.reserved.get(id);
-    if (m?.size) {
-      const modes = [...m.values()].map((x) => x.mode);
-      return modes.includes("plan") ? "plan" : modes[modes.length - 1];
-    }
+    if (m?.size) return [...m.values()].at(-1).mode;
     return this.get(id).meta.mode;
   }
   /** A turn has wholly finished: it lets go of the thread, and whoever is following it is told how it ended
@@ -160,12 +157,12 @@ export class Threads {
       return "This thread is busy in Weld. Send again when it has finished.";
     return null;
   }
-  startFor(id, { text, mode }) {
+  startFor(id, { text }) {
     const why = this.cannotStart(id);
     if (why) return { ok: false, reason: why };
     text = String(text || "").trim();
     if (!text) return { ok: false, reason: "The message is empty." };
-    const turn = this.start(id, text, { refs: "board", mode: mode === "plan" ? "plan" : undefined });
+    const turn = this.start(id, text, { refs: "board" });
     return turn ? { ok: true, turn } : { ok: false, reason: "This thread cannot be used from here." };
   }
 
@@ -221,6 +218,8 @@ export class Threads {
     }
     t.id = id;
     t.meta = { agent: "claude", mode: "full", cwd: os.homedir(), sessions: {}, status: "idle", unread: false, queue: [], title: "", ...t.meta };
+    // (a thread kept from when there was a Plan mode is held to Edits only, the nearer of the two left)
+    if (!MODES.includes(t.meta.mode)) t.meta.mode = "edits";
     t.meta.workspace = placeOf(t.meta.cwd);
     // nothing survives a restart mid-turn: what was running is now stopped
     if (t.meta.status === "running") {
@@ -497,8 +496,8 @@ export class Threads {
   start(id, text, extra) {
     if (this.gone.has(id)) return;
     const t = this.get(id);
-    // what this turn is allowed, read once as it is let in: the thread's mode, or a stricter one asked for this turn only
-    const mode = extra?.mode === "plan" ? "plan" : t.meta.mode;
+    // what this turn is allowed, read once as it is let in
+    const mode = t.meta.mode;
     // an ACP agent or one of the two Weld runs natively
     const spec = this.o.agents?.spec(t.meta.agent, mode) ?? null;
     const agent = spec ? t.meta.agent : t.meta.agent === "codex" ? "codex" : "claude";
@@ -522,8 +521,7 @@ export class Threads {
     }
     // a mode is offered for an ACP agent only where Weld can enforce it
     if (spec && !spec.modes.includes(mode)) {
-      const what = mode === "plan" ? "Plan" : "Edits only";
-      this.put(id, { kind: "error", id: `${turn}e`, text: `${what} isn't available for ${agentName} in Weld yet (Weld can't yet make sure it holds). Switch this thread to Full access, or choose another agent.`, at: now() });
+      this.put(id, { kind: "error", id: `${turn}e`, text: `Edits only isn't available for ${agentName} in Weld yet (Weld can't yet make sure it holds). Switch this thread to Full access, or choose another agent.`, at: now() });
       failed();
       return turn;
     }

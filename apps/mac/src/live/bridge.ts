@@ -12,7 +12,7 @@ export interface AgentInfo {
   modes: Mode[];
   signIn?: string;
 }
-export type Mode = "plan" | "edits" | "full";
+export type Mode = "edits" | "full";
 
 export interface Item {
   id: string;
@@ -251,8 +251,8 @@ export function agentList(fresh = false): AgentInfo[] {
       agentsWere = weld.agentList();
     } catch {
       agentsWere = [
-        { id: "claude", name: "Claude", kind: "native", installed: !!weld.info.agents.claude, modes: ["full", "edits", "plan"] },
-        { id: "codex", name: "Codex", kind: "native", installed: !!weld.info.agents.codex, modes: ["full", "edits", "plan"] },
+        { id: "claude", name: "Claude", kind: "native", installed: !!weld.info.agents.claude, modes: ["full", "edits"] },
+        { id: "codex", name: "Codex", kind: "native", installed: !!weld.info.agents.codex, modes: ["full", "edits"] },
       ];
     }
   }
