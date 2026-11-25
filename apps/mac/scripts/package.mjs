@@ -142,11 +142,8 @@ if (release) {
 
   // the zip, of the same app
   run("ditto", ["-c", "-k", "--sequesterRsrc", "--keepParent", app, path.join(dest, `${name}.zip`)]);
-  // (and under a name without the version, so the install script can always fetch the latest release from one address)
-  const latest = `Weld-${process.arch}.zip`;
-  run("cp", [path.join(dest, `${name}.zip`), path.join(dest, latest)]);
 
-  const sums = execFileSync("shasum", ["-a", "256", `${name}.dmg`, `${name}.zip`, latest], { cwd: dest, encoding: "utf8" });
+  const sums = execFileSync("shasum", ["-a", "256", `${name}.dmg`, `${name}.zip`], { cwd: dest, encoding: "utf8" });
   writeFileSync(path.join(dest, "SHA256SUMS.txt"), sums);
   console.log(`${signed ? "signed and notarized" : "ad-hoc signed"}: ${dest}`);
 }

@@ -70,6 +70,9 @@ Both apps' checks exercise it: the Mac app's `test/diagrams.mjs` and the web can
 
 ## Releasing
 
+A release is also pinned in `install.sh`, which installs exactly that release: after `pnpm --filter @weld/mac release`,
+run `scripts/pin-release.sh` and commit the version and SHA-256 it writes, with the release's tag.
+
 Mac releases are built by `.github/workflows/release.yml` when a tag like `v0.2.0` is pushed; the tag must match the
 version in `apps/mac/package.json`. It builds the app, signs it if set up, checks the app copied out of the DMG, and drafts a
 GitHub release with the DMG, a zip and their checksums. Publish the draft when it looks right.

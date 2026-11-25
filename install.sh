@@ -3,8 +3,8 @@
 #
 #   s=$(curl -fsSL https://raw.githubusercontent.com/MohamedH1998/weld/main/install.sh) && /bin/sh -c "$s"
 #
-# It finds the latest release, downloads it, checks it against that release's checksums and its signature, and puts it
-# in Applications (or where Weld already is), then opens it. Run it again to update. It needs no sudo and changes
+# It downloads the release named below, checks it against the checksum written here and its signature, and puts it in
+# Applications (or where Weld already is), then opens it. Run it again to update. It needs no sudo and changes
 # nothing else on the Mac. An update never leaves you without a working Weld: the new copy is made and checked beside
 # the old one, and only then swapped in.
 #
@@ -14,6 +14,10 @@ set -eu
 
 REPO="MohamedH1998/weld"
 BUNDLE_ID="app.weld.mac"
+# The release this script installs, and the SHA-256 of its zip: set here at each release (scripts/pin-release.sh), so
+# what is installed is checked against this file, not only against a list that came with the download.
+VERSION="0.0.0"
+SHA256="unreleased"
 
 say() { printf '%s\n' "$*"; }
 fail() { say "weld: $*" >&2; exit 1; }
@@ -31,21 +35,13 @@ main() {
   trap 'exit 130' INT
   trap 'exit 143' TERM
 
-  # one release for every file, named by its tag (asking for "latest" twice could straddle a new release)
-  if [ -n "${WELD_DOWNLOAD:-}" ]; then
-    from="$WELD_DOWNLOAD"
-  else
-    tag=$(curl -fsSIL -o /dev/null -w '%{url_effective}' "https://github.com/$REPO/releases/latest" | sed -n 's|.*/releases/tag/||p')
-    [ -n "$tag" ] || fail "couldn't find Weld's latest release. Check your connection and try again."
-    from="https://github.com/$REPO/releases/download/$tag"
-    say "Installing Weld ${tag#v}…"
-  fi
-
-  curl -fL --progress-bar "$from/Weld-arm64.zip" -o "$tmp/Weld.zip" || fail "couldn't download Weld."
-  curl -fsSL "$from/SHA256SUMS.txt" -o "$tmp/SHA256SUMS.txt" || fail "couldn't download the release's checksums."
-  want=$(awk '$2 == "Weld-arm64.zip" { print $1 }' "$tmp/SHA256SUMS.txt")
+  [ "$SHA256" != unreleased ] || [ -n "${WELD_DOWNLOAD:-}" ] || fail "there is no Weld release to install yet."
+  from="${WELD_DOWNLOAD:-https://github.com/$REPO/releases/download/v$VERSION}"
+  want="${WELD_SHA256:-$SHA256}"
+  say "Installing Weld ${VERSION}…"
+  curl -fL --progress-bar "$from/Weld-$VERSION-arm64.zip" -o "$tmp/Weld.zip" || fail "couldn't download Weld."
   got=$(shasum -a 256 "$tmp/Weld.zip" | awk '{ print $1 }')
-  [ -n "$want" ] && [ "$want" = "$got" ] || fail "the download doesn't match the release's checksum, so nothing was installed."
+  [ "$want" = "$got" ] || fail "the download isn't the Weld $VERSION this script expects (its checksum differs), so nothing was installed."
 
   ditto -x -k "$tmp/Weld.zip" "$tmp/app"
   checked "$tmp/app/Weld.app" || fail "the download isn't a sound copy of Weld, so nothing was installed."
@@ -61,7 +57,8 @@ main() {
   target="$dest/Weld.app"
 
   # one install at a time into this folder, held until everything here is tidied away
-  mkdir "$dest/.weld-install.lock" 2>/dev/null || fail "another Weld install is running into $dest. Wait for it to finish (or, if none is, remove $dest/.weld-install.lock)."
+  # (shlock writes this run's pid, and takes over a lock whose run is no longer alive)
+  shlock -f "$dest/.weld-install.lock" -p $$ || fail "another Weld install is running into $dest. Wait for it to finish."
   lock="$dest/.weld-install.lock"
 
   # an update cut off at the worst moment last time (the power went, say): its old Weld is put back first
@@ -70,9 +67,6 @@ main() {
       [ -d "$left" ] && checked "$left" && mv "$left" "$target" && say "Put back the Weld a cut-off update had moved aside." && break
     done
   fi
-  # (and what such an update left behind is cleared away: only this script makes folders by that name, and the lock
-  # says no other run is using one)
-  for left in "$dest"/.weld-install.??????; do [ -d "$left" ] && rm -rf "$left"; done
 
   # what is there now must be Weld (never a link, never another app that happens to be called Weld)
   if [ -e "$target" ] || [ -L "$target" ]; then
@@ -107,7 +101,7 @@ cleanup() {
   if [ -n "$old" ] && [ -d "$old" ] && [ ! -e "$target" ]; then mv "$old" "$target" 2>/dev/null || true; fi
   [ -z "$work" ] || rm -rf "$work"
   rm -rf "$tmp"
-  [ -z "$lock" ] || rmdir "$lock" 2>/dev/null || true
+  [ -z "$lock" ] || rm -f "$lock"
 }
 
 # a sound copy of Weld: its bundle id, and its signature intact
