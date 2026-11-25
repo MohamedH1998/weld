@@ -3,19 +3,6 @@
 The details behind the [README](../README.md): how agents use the board, which agents run, the keys, and what Weld can
 do on your Mac.
 
-## How agents use the board
-
-Everything Weld starts is given a `weld` command. Agents are told about it, and use it the way you use the board:
-
-| Command | What it does |
-| --- | --- |
-| `weld open <address>` | Put a live page beside the thread: a URL, `localhost:5173`, or a local file |
-| `weld run '<command>'` | Run a dev server or watcher in the background, listed on the thread (`--show` puts it in a terminal) |
-| `weld look` | See what is connected to the thread, as it is now |
-| `weld draw '<json>'` | Draw on the board: shapes and arrows, or a whole diagram that plays |
-| `weld guide find <words>` | Find the catalogue's diagrams closest to a subject, to start from |
-| `weld click`, `weld type` | Use a page the agent opened, to check its own work |
-
 ## Install
 
 The install line in the README runs [install.sh](../install.sh) with your own account (it needs no `sudo`). It finds
@@ -32,6 +19,19 @@ macOS blocks it the first time: open it once, then choose **Open Anyway** in Sys
 stay in `~/Library/Application Support/Weld`; delete that folder too to remove them.
 
 **From source:** with Node 22.13 or later and pnpm, `git clone https://github.com/MohamedH1998/weld && cd weld && pnpm install && pnpm app`.
+
+## How agents use the board
+
+Everything Weld starts is given a `weld` command. Agents are told about it, and use it the way you use the board:
+
+| Command | What it does |
+| --- | --- |
+| `weld open <address>` | Put a live page beside the thread: a URL, `localhost:5173`, or a local file |
+| `weld run '<command>'` | Run a dev server or watcher in the background, listed on the thread (`--show` puts it in a terminal) |
+| `weld look` | See what is connected to the thread, as it is now |
+| `weld draw '<json>'` | Draw on the board: shapes and arrows, or a whole diagram that plays |
+| `weld guide find <words>` | Find the catalogue's diagrams closest to a subject, to start from |
+| `weld click`, `weld type` | Use a page the agent opened, to check its own work |
 
 ## Agents
 
