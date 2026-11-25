@@ -36,7 +36,7 @@ main() {
   is_sha "$SHA256" || fail "there is no Weld release to install yet."
 
   # (phase: "staging" until the swap is called, after which the work folder is handled by identity, never assumed)
-  tmp="" work="" lock="" phase="staging" had="" was="" ours_id=""
+  tmp="" work="" work_id="" lock="" phase="staging" had="" was="" ours_id=""
   trap cleanup EXIT
   trap 'exit 130' INT
   trap 'exit 143' TERM
@@ -78,11 +78,14 @@ main() {
 
   # the new copy, made and checked beside the old one, in a folder of this run's own (same disk, for the swap)
   work=$(mktemp -d "$dest/.weld-install.XXXXXX") || fail "couldn't make a folder in $dest. Your installed Weld is unchanged."
+  work_id=$(identity "$work")
   ditto "$tmp/app/Weld.app" "$work/Weld.app" || fail "couldn't copy Weld into $dest (is the disk full?). Your installed Weld is unchanged."
   checked "$work/Weld.app" || fail "the copy in $dest didn't check out. Your installed Weld is unchanged."
   ours_id=$(identity "$work/Weld.app")
 
   running && fail "Weld is open. Quit it (⌘Q), then run this again."
+  # (the staging folder and its copy, looked at once more just before they are used: still the ones this run made)
+  [ "$(identity "$work")" = "$work_id" ] && [ "$(identity "$work/Weld.app")" = "$ours_id" ] && checked "$work/Weld.app" || fail "the new copy changed before it could be installed, so nothing was installed."
 
   if [ -n "$had" ]; then
     # one step: Weld.app becomes the new copy, and the old one takes its place in the work folder (from the moment the
@@ -109,7 +112,8 @@ main() {
 # and goes. After it, it goes only if what is in it is known: the old Weld swapped out, or this run's own copy swapped
 # back, each recognised by its identity on disk. Anything else is kept, and said where.
 cleanup() {
-  if [ -n "$work" ] && [ -d "$work" ]; then
+  # (only the very folder this run made: if something else is at that path now, it is left alone)
+  if [ -n "$work" ] && [ -d "$work" ] && [ ! -L "$work" ] && [ "$(identity "$work")" = "$work_id" ]; then
     if [ "$phase" = staging ]; then rm -rf "$work"
     elif [ -z "$(ls -A "$work")" ]; then rmdir "$work"
     elif [ "$(ls -A "$work")" = Weld.app ] && known "$work/Weld.app"; then rm -rf "$work"
