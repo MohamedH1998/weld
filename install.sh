@@ -14,7 +14,8 @@
 #     RENAME_SWAP to exchange the old Weld for the new one (so there is never a moment without a Weld), or, for a first
 #     install, RENAME_EXCL, which fails rather than touch anything that has appeared there;
 #   - it never replaces anything at Weld.app that isn't the sound Weld it found; the Weld it replaces goes to the Trash;
-#     it deletes only its own download, and it starts nothing itself.
+#     it deletes only its own download, and the only thing it starts is the Weld it just checked and put there, for a
+#     person at a terminal (WELD_NO_OPEN=1 to not).
 
 set -eu
 
@@ -110,8 +111,14 @@ main() {
     place "$new" "$target" || fail "something appeared at $target during the install, so it was left as it was."
   fi
 
-  # (not opened from here: only what was checked is ever started by this script, and it starts nothing)
-  say "Weld is installed in $dest. Open it from there (or Spotlight: Weld)."
+  # Opened for a person at a terminal (never for a script, CI or root, nor with WELD_NO_OPEN set): only the very copy this
+  # run checked and put there, checked again now. Anything that could swap it in between already runs as you.
+  if [ -t 1 ] && [ "$(id -u)" -ne 0 ] && [ -z "${WELD_NO_OPEN:-}" ] && [ "$(identity "$target")" = "$ours_id" ] && checked "$target"; then
+    say "Weld is installed in $dest. Opening it…"
+    /usr/bin/open "$target" || say "Open it from $dest (or Spotlight: Weld)."
+  else
+    say "Weld is installed in $dest. Open it from there (or Spotlight: Weld)."
+  fi
 }
 
 # On the way out, however it ends: what is in this run's folder is sorted out first. This run's own download, still
