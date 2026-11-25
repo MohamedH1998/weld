@@ -35,7 +35,8 @@ main() {
   [ -x /usr/bin/perl ] || fail "this Mac has no /usr/bin/perl (part of macOS), which the installer uses to swap apps safely."
   is_sha "$SHA256" || fail "there is no Weld release to install yet."
 
-  tmp="" work="" lock="" swapped=""
+  # (phase: "staging" until the swap is called, after which the work folder is handled by identity, never assumed)
+  tmp="" work="" lock="" phase="staging" had="" was="" ours_id=""
   trap cleanup EXIT
   trap 'exit 130' INT
   trap 'exit 143' TERM
@@ -58,8 +59,11 @@ main() {
   lock="$dest/.weld-install.lock"
 
   # what is there must be a sound Weld (never a link, never another app that happens to be called Weld)
-  if occupied "$target" && ! checked "$target"; then
-    fail "$target isn't a sound copy of Weld, so it wasn't touched. Move it to the Trash, then run this again."
+  if occupied "$target"; then
+    checked "$target" || fail "$target isn't a sound copy of Weld, so it wasn't touched. Move it to the Trash, then run this again."
+    # (the Weld found here, by its identity on disk: only this very folder may be swapped out and deleted)
+    had=1
+    was=$(identity "$target")
   fi
 
   # the download, checked against the SHA-256 pinned above before it is even opened
@@ -76,20 +80,23 @@ main() {
   work=$(mktemp -d "$dest/.weld-install.XXXXXX") || fail "couldn't make a folder in $dest. Your installed Weld is unchanged."
   ditto "$tmp/app/Weld.app" "$work/Weld.app" || fail "couldn't copy Weld into $dest (is the disk full?). Your installed Weld is unchanged."
   checked "$work/Weld.app" || fail "the copy in $dest didn't check out. Your installed Weld is unchanged."
+  ours_id=$(identity "$work/Weld.app")
 
   running && fail "Weld is open. Quit it (⌘Q), then run this again."
 
-  if occupied "$target"; then
-    # one step: Weld.app becomes the new copy, and the old one takes its place in the work folder
-    swap "$work/Weld.app" "$target" && swapped=1 || fail "couldn't swap in the new Weld (macOS may be asking to let your terminal change apps: allow it in System Settings → Privacy & Security → App Management). Your installed Weld is unchanged."
-    # (what was swapped out must be the Weld checked before: if anything else had been put there meanwhile, it goes
-    # straight back, in one step again)
-    if ! checked "$work/Weld.app"; then
+  if [ -n "$had" ]; then
+    # one step: Weld.app becomes the new copy, and the old one takes its place in the work folder (from the moment the
+    # swap is asked for, cleanup treats it as done: nothing in the work folder is deleted unless it is known)
+    phase="swapped"
+    swap "$work/Weld.app" "$target" || { phase="staging"; fail "couldn't swap in the new Weld (macOS may be asking to let your terminal change apps: allow it in System Settings → Privacy & Security → App Management). Your installed Weld is unchanged."; }
+    # (what was swapped out must be the very Weld found before: if anything else had been put there meanwhile, it
+    # goes straight back, in one step again)
+    if [ "$(identity "$work/Weld.app")" != "$was" ]; then
       swap "$work/Weld.app" "$target" || fail "$target changed during the update and couldn't be swapped back. What was there is at $work/Weld.app."
       fail "$target changed during the update, so it was put back as it was."
     fi
   else
-    # a first install: only into an empty place (it fails, touching nothing, if something has appeared there)
+    # a first install: only into an empty place (it fails, touching nothing, if anything has appeared there)
     place "$work/Weld.app" "$target" || fail "something appeared at $target during the install, so it was left as it was."
   fi
 
@@ -97,21 +104,23 @@ main() {
   [ "${WELD_NO_OPEN:-}" = 1 ] || open "$target"
 }
 
-# On the way out, however it ends: this run's work folder goes. Before a swap it holds only this run's own copy; after
-# one, it goes only if it holds nothing but a sound copy of Weld (the old one swapped out, or the new one swapped back);
-# anything else in it is kept, and said where.
+# On the way out, however it ends. Before the swap, the work folder holds only this run's own copy (whole or half-made)
+# and goes. After it, it goes only if what is in it is known: the old Weld swapped out, or this run's own copy swapped
+# back, each recognised by its identity on disk. Anything else is kept, and said where.
 cleanup() {
   if [ -n "$work" ] && [ -d "$work" ]; then
-    # (before any swap, it holds only this run's own copy, whole or half-made)
-    if [ -z "$swapped" ]; then rm -rf "$work"
+    if [ "$phase" = staging ]; then rm -rf "$work"
     elif [ -z "$(ls -A "$work")" ]; then rmdir "$work"
-    elif [ "$(ls -A "$work")" = Weld.app ] && checked "$work/Weld.app"; then rm -rf "$work"
+    elif [ "$(ls -A "$work")" = Weld.app ] && { id=$(identity "$work/Weld.app"); [ "$id" = "$was" ] || [ "$id" = "$ours_id" ]; }; then rm -rf "$work"
     else say "weld: kept $work, which holds something the installer didn't expect. Look inside before deleting it." >&2
     fi
   fi
   [ -z "$tmp" ] || rm -rf "$tmp"
   [ -z "$lock" ] || rm -f "$lock"
 }
+
+# a path's identity on disk (device and inode: the same folder keeps it when renamed or swapped)
+identity() { stat -f '%d:%i' "$1" 2>/dev/null || echo none; }
 
 # whether anything at all is at a path (a link counts, even a broken one)
 occupied() { [ -e "$1" ] || [ -L "$1" ]; }
