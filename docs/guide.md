@@ -16,6 +16,23 @@ Everything Weld starts is given a `weld` command. Agents are told about it, and 
 | `weld guide find <words>` | Find the catalogue's diagrams closest to a subject, to start from |
 | `weld click`, `weld type` | Use a page the agent opened, to check its own work |
 
+## Install
+
+The install line in the README runs [install.sh](../install.sh) with your own account (it needs no `sudo`). It finds
+the latest release, checks the download against the release's checksums and Weld's signature, and puts Weld in
+`/Applications` (or `~/Applications`, or wherever Weld already is). An update makes and checks the new copy before
+swapping it in, so a failed update leaves the old Weld as it was.
+
+**Not notarized yet.** Weld's releases are signed ad hoc, not by an Apple Developer ID. An app installed by the script
+opens normally, because macOS only checks apps it has marked as downloaded by a browser, Mail or AirDrop. If you
+download the DMG or zip from the [releases page](https://github.com/MohamedH1998/weld/releases) in a browser instead,
+macOS blocks it the first time: open it once, then choose **Open Anyway** in System Settings → Privacy & Security.
+
+**Update:** quit Weld and run the install line again. **Uninstall:** quit Weld and move it to the Trash. Your boards
+stay in `~/Library/Application Support/Weld`; delete that folder too to remove them.
+
+**From source:** with Node 22.13 or later and pnpm, `git clone https://github.com/MohamedH1998/weld && cd weld && pnpm install && pnpm app`.
+
 ## Agents
 
 | Agent | How it runs |

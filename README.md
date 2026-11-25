@@ -23,15 +23,16 @@ Weld has no model of its own. It runs the agents you already use, signed in as y
 
 ## Install
 
-On a Mac with Apple silicon:
+On a Mac with Apple silicon and macOS 13 or later, in Terminal:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/MohamedH1998/weld/main/install.sh | sh
+/bin/sh -c "$(curl -fsSL https://raw.githubusercontent.com/MohamedH1998/weld/main/install.sh)"
 ```
 
 That puts the latest Weld in Applications and opens it; run it again to update. Weld runs
 [Claude Code](https://docs.anthropic.com/en/docs/claude-code) or [Codex](https://github.com/openai/codex); if you have
-neither, it offers to install one the first time it opens.
+neither, it offers to install one the first time it opens. Weld isn't notarized by Apple yet: see the
+[guide](docs/guide.md#install) for what that means and for the other ways to install.
 
 To build it yourself instead, with [Node](https://nodejs.org) 22.13 or later and [pnpm](https://pnpm.io/installation):
 
