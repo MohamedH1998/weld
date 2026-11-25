@@ -7,7 +7,7 @@ import { ArrowUp, CaretDown, Folder, X } from "@phosphor-icons/react";
 import type { Editor } from "@weld/canvas/editor";
 import { boundsOf } from "@weld/canvas/geometry";
 import type { Box, Id } from "@weld/canvas/types";
-import { agentList, agentName, boardDir, chosenAgent, chosenModel, defaultCwd, folderName, installed, modelsOf, remember, setBoardDir, settings, tilde, weld } from "./bridge";
+import { agentList, agentName, agentsKnown, boardDir, chosenAgent, chosenModel, defaultCwd, folderName, installed, modelsOf, remember, setBoardDir, settings, tilde, weld } from "./bridge";
 import type { Item } from "./bridge";
 import { smiths, smithsVersion, subscribeSmiths } from "./smith";
 import { openings } from "./opening";
@@ -76,13 +76,17 @@ export const Bar = memo(function Bar({ editor, dark }: { editor: Editor; dark: b
   const away = awayThreads(editor);
   for (const b of away) ensure(b.id);
   const agents = Object.values(installed()).some(Boolean);
-  // (with none yet: asked again every few seconds, so one installed from the board wakes the bar up)
+  // (not yet known for a moment on a first launch: nothing is offered or refused until it is)
+  const known = agentsKnown();
+  // (with none yet: asked again every few seconds, so one installed from the board wakes the bar up; sooner while unknown)
   const [, looked] = useState(0);
   useEffect(() => {
     if (agents) return;
-    const t = window.setInterval(() => (agentList(true), looked((n) => n + 1)), 2500);
-    return () => window.clearInterval(t);
-  }, [agents]);
+    const again = () => (agentList(true), looked((n) => n + 1));
+    const off = weld.onEnv(again);
+    const t = window.setInterval(again, known ? 2500 : 250);
+    return () => (window.clearInterval(t), off());
+  }, [agents, known]);
   // who a new thread is asked of, and with which model: chosen here, and remembered for the next
   const agentId = chosenAgent();
   const agent = agentName(agentId);
@@ -160,7 +164,7 @@ export const Bar = memo(function Bar({ editor, dark }: { editor: Editor; dark: b
           <div key={b.id} hidden><ThreadNode box={b} editor={editor} active={false} far={false} dark={dark} /></div>
         ))}
         {trouble && <div className="welcome-trouble">{trouble}</div>}
-        {!agents && !reading && onboarding && <Setup editor={editor} />}
+        {!agents && known && !reading && onboarding && <Setup editor={editor} />}
         {empty && !reading && agents && (
           <div className="welcome-tasks">
             {TASKS.map((t) => (
@@ -188,7 +192,7 @@ export const Bar = memo(function Bar({ editor, dark }: { editor: Editor; dark: b
               ref={area}
               rows={1}
               value={text}
-              placeholder={agents ? `Ask ${agent} to make something…` : onboarding ? "Add an agent above to start" : "Add an agent in Settings (⌘,) to start"}
+              placeholder={agents || !known ? `Ask ${agent} to make something…` : onboarding ? "Add an agent above to start" : "Add an agent in Settings (⌘,) to start"}
               disabled={!agents}
               aria-label="Ask an agent"
               onChange={(e) => setText(e.target.value)}

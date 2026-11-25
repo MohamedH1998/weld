@@ -94,4 +94,6 @@ contextBridge.exposeInMainWorld("weld", {
   localUrl: (u) => ipcRenderer.invoke("local:url", u),
   onReveal: on("app:reveal"),
   onFocus: on("app:focus"),
+  onEnv: on("app:env"),
+  envKnown: () => ipcRenderer.sendSync("app:envKnownSync"),
 });

@@ -92,7 +92,11 @@ try {
   /* first launch */
 }
 if (rememberedPath) process.env.PATH = rememberedPath;
+// (known once the shell's environment is in: until then, which agents are on this Mac is not yet known)
+let envKnown = false;
 const envReady = loadShellEnv().then(() => {
+  envKnown = true;
+  setTimeout(() => send("app:env"), 0);
   try {
     mkdirSync(path.dirname(pathFile()), { recursive: true });
     writeFileSync(pathFile(), JSON.stringify({ PATH: process.env.PATH }));
@@ -1527,9 +1531,11 @@ function wire() {
       .slice(0, 6)
       .map((m) => ({ id: m.slug, name: typeof m.display_name === "string" ? m.display_name : m.slug }));
   };
+  ipcMain.on("app:envKnownSync", (e) => (e.returnValue = envKnown));
   ipcMain.on("app:infoSync", (e) => {
     lookIn(boards().dirOf(boards().current()));
     e.returnValue = {
+      envKnown,
       board: { id: boards().current(), name: boards().nameOf(boards().current()), dir: boards().dirOf(boards().current()) },
       home: os.homedir(),
       dev: !!DEV_URL,
@@ -1735,10 +1741,11 @@ else {
   app.whenReady().then(async () => {
     life = lifeRecord(data(), { version: app.getVersion() });
     powerMonitor.on("shutdown", () => (quitWhy = "the Mac shut down or restarted"));
-    // the window does not wait for the shell: only the very first launch, with no PATH remembered, does
-    // (nor a launch where the remembered PATH does not find both agents: one may have been installed since)
-    // (only when neither agent is found does the window wait: someone with one of them should not pay for the shell every launch)
-    if (!rememberedPath || (!which("claude") && !which("codex"))) await envReady;
+    // (each step's end, in ms since the process started: what startup is spent on)
+    const t = (k) => (marks[k] = Math.round(process.uptime() * 1000));
+    t("begin");
+    // The window never waits for the shell (on a first launch that was most of the wait): until its environment is in,
+    // the page is told the agents aren't known yet, and is told again when they are. Terminals and agents wait for it.
     // agents a Weld that was killed outright left working are ended before anything new starts
     groups = processGroups(file("agents.pids.json"));
     // files made from pictures for agents, unused for 30 days, are swept (pictures themselves are kept)
@@ -1747,10 +1754,14 @@ else {
     } catch {
       /* next start */
     }
+    t("assets");
     const left = await groups.sweep();
+    t("groups");
     if (left) console.log(`weld: ended ${left} agent group(s) left by the last run`);
     await openDoor();
+    t("door");
     await openAcp();
+    t("acp");
     // a page on the board may copy to the clipboard and go full screen; anything else it asks for is refused
     const allowed = ["clipboard-sanitized-write", "fullscreen"];
     session.fromPartition("persist:weld").setPermissionRequestHandler((_wc, permission, done) => done(allowed.includes(permission)));
@@ -1759,6 +1770,7 @@ else {
     wire();
     buildMenu();
     createWindow();
+    t("window");
     app.on("activate", () => {
       if (!win) createWindow();
       else win.show();

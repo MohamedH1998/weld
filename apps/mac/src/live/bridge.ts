@@ -155,7 +155,7 @@ export interface Weld {
   removeAgent: (id: string) => Promise<boolean>;
   /** T3 Code: whether it is on this Mac, and whether Weld is one of its agents; adding Weld to it, or taking it off. */
   t3: { state: () => Promise<{ installed: boolean; connected: boolean }>; connect: () => Promise<{ ok?: boolean; error?: string }>; disconnect: () => Promise<{ ok?: boolean; error?: string }> };
-  info: { home: string; dev: boolean; version: string; agents: Record<Agent, boolean>; settings: Settings; models?: { codex?: { id: string; name: string; sub?: string }[] }; seed?: boolean; test?: boolean; board?: { id: string; name: string; dir?: string | null } };
+  info: { envKnown?: boolean; home: string; dev: boolean; version: string; agents: Record<Agent, boolean>; settings: Settings; models?: { codex?: { id: string; name: string; sub?: string }[] }; seed?: boolean; test?: boolean; board?: { id: string; name: string; dir?: string | null } };
   board: { load: () => { doc?: string; cam?: string } | null; save: (b: { doc: string | null; cam: string | null; board?: string; done?: string[] }) => Promise<boolean>; saveNow: (b: { doc: string | null; cam: string | null; board?: string; done?: string[] }) => boolean; keepAside: (board?: string) => void; threads: (ids: string[], ok: boolean, board?: string) => void };
   boards: {
     list: () => Promise<BoardEntry[]>;
@@ -225,6 +225,9 @@ export interface Weld {
   onAcpNew: (fn: (o: { id: string; cwd: string; req: string }) => void) => () => void;
   acpMade: (req: string) => void;
   onFocus: (fn: (on: boolean) => void) => () => void;
+  /** The shell's environment is in (so which agents are on this Mac is known): told once, and asked. */
+  onEnv: (fn: () => void) => () => void;
+  envKnown: () => boolean;
 }
 export const weld = (window as unknown as { weld: Weld }).weld;
 
@@ -253,6 +256,12 @@ export function agentList(fresh = false): AgentInfo[] {
     }
   }
   return agentsWere!;
+}
+/** Whether which agents are on this Mac is known yet (it isn't for a moment on a first launch, while the shell is read). */
+let known = false;
+export function agentsKnown(): boolean {
+  if (!known) known = !!weld.info.envKnown || weld.envKnown();
+  return known;
 }
 export function installed(): Record<Agent, boolean> {
   return Object.fromEntries(agentList().map((a) => [a.id, a.installed]));
