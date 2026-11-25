@@ -54,9 +54,8 @@ main() {
   mkdir -p "$dest"
   target="$dest/Weld.app"
 
-  # one install at a time into this folder (shlock writes this run's pid, and takes over a lock whose run has died)
-  shlock -f "$dest/.weld-install.lock" -p $$ || fail "another Weld install is running into $dest. Wait for it to finish."
-  lock="$dest/.weld-install.lock"
+  # one install at a time into this folder
+  take_lock "$dest/.weld-install.lock"
 
   # what is there must be a sound Weld (never a link, never another app that happens to be called Weld)
   if occupied "$target"; then
@@ -116,11 +115,26 @@ cleanup() {
     fi
   fi
   [ -z "$tmp" ] || rm -rf "$tmp"
-  [ -z "$lock" ] || rm -f "$lock"
+  [ -z "$lock" ] || { rm -f "$lock/pid"; rmdir "$lock" 2>/dev/null || true; }
 }
 
 # a path's identity on disk (device and inode: the same folder keeps it when renamed or swapped)
 identity() { stat -f '%d:%i' "$1" 2>/dev/null || echo none; }
+
+# The lock: a folder made with mkdir (which only one run can do), holding the pid of the run that made it. A lock whose
+# run no longer exists is taken over; one held by a running process, or that can't be read, is left alone.
+take_lock() {
+  if ! mkdir "$1" 2>/dev/null; then
+    holder=$(cat "$1/pid" 2>/dev/null || true)
+    case "$holder" in "" | *[!0-9]*) fail "another Weld install seems to be running into $(dirname "$1"). Wait for it to finish, or if none is, remove $1." ;; esac
+    ps -p "$holder" >/dev/null 2>&1 && fail "another Weld install is running into $(dirname "$1"). Wait for it to finish."
+    rm -f "$1/pid"
+    rmdir "$1" 2>/dev/null || fail "couldn't clear a lock left by an earlier install at $1. Remove it, then run this again."
+    mkdir "$1" 2>/dev/null || fail "another Weld install is running into $(dirname "$1"). Wait for it to finish."
+  fi
+  lock="$1"
+  echo $$ > "$1/pid"
+}
 
 # whether anything at all is at a path (a link counts, even a broken one)
 occupied() { [ -e "$1" ] || [ -L "$1" ]; }
