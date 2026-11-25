@@ -53,9 +53,12 @@ main() {
   mkdir -p "$dest"
   target="$dest/Weld.app"
 
-  # this run's own folder, private to this account (mktemp makes it 700, inside a temporary folder that is too); it
-  # must be on the same disk as Applications, so the swap is a single rename
-  tmp=$(mktemp -d)
+  # this run's own folder, inside macOS's temporary folder for this account (asked of the system, not taken from
+  # TMPDIR), which must be owned by this account and closed to everyone else; it must be on the same disk as
+  # Applications, so the swap is a single rename
+  base=$(getconf DARWIN_USER_TEMP_DIR 2>/dev/null) || fail "couldn't find this account's temporary folder."
+  [ -d "$base" ] && [ ! -L "${base%/}" ] && [ -O "$base" ] && [ "$(stat -f '%Lp' "$base")" = 700 ] || fail "this account's temporary folder ($base) isn't private to it, so the installer won't work in it."
+  tmp=$(mktemp -d "${base%/}/weld-install.XXXXXX")
   [ "$(stat -f %d "$tmp")" = "$(stat -f %d "$dest")" ] || fail "$dest isn't on the same disk as this account's temporary folder, which the installer needs to swap Weld in safely."
 
   # one install at a time into this folder (mkdir: only one run can make it; if it is there, this run stops)
@@ -106,7 +109,7 @@ main() {
 # kept, and said where. The lock is let go.
 cleanup() {
   if [ -n "$tmp" ] && [ -d "$tmp" ]; then
-    if [ -e "$tmp/new/Weld.app" ] && ! known "$tmp/new/Weld.app"; then
+    if occupied "$tmp/new/Weld.app" && ! known "$tmp/new/Weld.app"; then
       say "weld: kept $tmp, which holds something that came out of $dest unexpectedly. Look inside before deleting it." >&2
     else
       rm -rf "$tmp"
@@ -115,13 +118,12 @@ cleanup() {
   [ -z "$lock" ] || rmdir "$lock" 2>/dev/null || true
 }
 
-# whether something in this run's folder is known: this run's own new copy, or the very Weld found at the start and
-# still sound (by identity, then checked); a failed lookup is unknown
+# whether something in this run's folder is known: this run's own new copy or the very Weld found at the start (by
+# identity), and still a sound Weld (checked: either may have spent a moment in Applications); a failed lookup is unknown
 known() {
   id=$(identity "$1")
   [ "$id" != none ] || return 1
-  [ "$id" = "$ours_id" ] && return 0
-  [ -n "$was" ] && [ "$id" = "$was" ] && checked "$1"
+  { [ "$id" = "$ours_id" ] || { [ -n "$was" ] && [ "$id" = "$was" ]; }; } && checked "$1"
 }
 
 # a path's identity on disk (device and inode: the same folder keeps it when renamed or swapped)
