@@ -1,7 +1,7 @@
 #!/bin/sh
 # Installs Weld, the infinite canvas harness for coding agents, on a Mac with Apple silicon (macOS 13 or later):
 #
-#   /bin/sh -c "$(curl -fsSL https://raw.githubusercontent.com/MohamedH1998/weld/main/install.sh)"
+#   s=$(curl -fsSL https://raw.githubusercontent.com/MohamedH1998/weld/main/install.sh) && /bin/sh -c "$s"
 #
 # It finds the latest release, downloads it, checks it against that release's checksums and its signature, and puts it
 # in Applications (or where Weld already is), then opens it. Run it again to update. It needs no sudo and changes
@@ -25,11 +25,11 @@ main() {
   major=$(sw_vers -productVersion | cut -d. -f1)
   [ "$major" -ge 13 ] || fail "Weld needs macOS 13 or later."
 
-  stage=""
   tmp=$(mktemp -d)
-  lock="${TMPDIR:-/tmp}/weld-install.lock"
-  mkdir "$lock" 2>/dev/null || fail "another Weld install is running. Wait for it to finish (or remove $lock if none is)."
-  trap 'rm -rf "$tmp" "$lock" ${stage:+"$stage"}' EXIT INT TERM
+  work="" lock="" old="" target=""
+  trap cleanup EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
 
   # one release for every file, named by its tag (asking for "latest" twice could straddle a new release)
   if [ -n "${WELD_DOWNLOAD:-}" ]; then
@@ -60,34 +60,54 @@ main() {
   mkdir -p "$dest"
   target="$dest/Weld.app"
 
+  # one install at a time into this folder, held until everything here is tidied away
+  mkdir "$dest/.weld-install.lock" 2>/dev/null || fail "another Weld install is running into $dest. Wait for it to finish (or, if none is, remove $dest/.weld-install.lock)."
+  lock="$dest/.weld-install.lock"
+
+  # an update cut off at the worst moment last time (the power went, say): its old Weld is put back first
+  if [ ! -e "$target" ]; then
+    for left in "$dest"/.weld-install.*/Weld.app.previous; do
+      [ -d "$left" ] && checked "$left" && mv "$left" "$target" && say "Put back the Weld a cut-off update had moved aside." && break
+    done
+  fi
+  # (and what such an update left behind is cleared away: only this script makes folders by that name, and the lock
+  # says no other run is using one)
+  for left in "$dest"/.weld-install.??????; do [ -d "$left" ] && rm -rf "$left"; done
+
   # what is there now must be Weld (never a link, never another app that happens to be called Weld)
   if [ -e "$target" ] || [ -L "$target" ]; then
     [ ! -L "$target" ] || fail "$target is a link, not an app. Move it aside, then run this again."
     [ "$(defaults read "$target/Contents/Info" CFBundleIdentifier 2>/dev/null || true)" = "$BUNDLE_ID" ] || fail "$target isn't Weld. Move it aside, then run this again."
   fi
 
-  # the new copy, made and checked beside the old one (same disk, so the swap is a rename)
-  stage="$dest/.Weld.app.installing-$$"
-  ditto "$tmp/app/Weld.app" "$stage" || fail "couldn't copy Weld into $dest (is the disk full?). Your installed Weld is unchanged."
-  checked "$stage" || fail "the copy in $dest didn't check out. Your installed Weld is unchanged."
+  # the new copy, made and checked beside the old one, in a folder of this run's own (same disk: the swap is renames)
+  work=$(mktemp -d "$dest/.weld-install.XXXXXX") || fail "couldn't make a folder in $dest. Your installed Weld is unchanged."
+  ditto "$tmp/app/Weld.app" "$work/Weld.app" || fail "couldn't copy Weld into $dest (is the disk full?). Your installed Weld is unchanged."
+  checked "$work/Weld.app" || fail "the copy in $dest didn't check out. Your installed Weld is unchanged."
 
   running && fail "Weld is open. Quit it (⌘Q), then run this again."
 
   if [ -e "$target" ]; then
-    old="$dest/.Weld.app.previous-$$"
-    mv "$target" "$old" || fail "couldn't move the old Weld aside (macOS may be asking to let your terminal change apps: allow it in System Settings → Privacy & Security → App Management). Your installed Weld is unchanged."
-    if ! mv "$stage" "$target"; then
-      mv "$old" "$target"
-      fail "couldn't put the new Weld in place, so the old one was put back."
-    fi
-    rm -rf "$old"
+    # (between these two renames, an interruption puts the old one back: see cleanup)
+    mv "$target" "$work/Weld.app.previous" || fail "couldn't move the old Weld aside (macOS may be asking to let your terminal change apps: allow it in System Settings → Privacy & Security → App Management). Your installed Weld is unchanged."
+    old="$work/Weld.app.previous"
+    mv "$work/Weld.app" "$target" || fail "couldn't put the new Weld in place, so the old one was put back."
+    old=""
   else
-    mv "$stage" "$target" || fail "couldn't put Weld in $dest."
+    mv "$work/Weld.app" "$target" || fail "couldn't put Weld in $dest."
   fi
-  stage=""
 
   say "Weld is installed: $target"
   [ "${WELD_NO_OPEN:-}" = 1 ] || open "$target"
+}
+
+# On the way out, however it ends: the old Weld put back if it was moved aside and the new one never arrived; then this
+# run's own folders (and only those) removed, and the lock let go.
+cleanup() {
+  if [ -n "$old" ] && [ -d "$old" ] && [ ! -e "$target" ]; then mv "$old" "$target" 2>/dev/null || true; fi
+  [ -z "$work" ] || rm -rf "$work"
+  rm -rf "$tmp"
+  [ -z "$lock" ] || rmdir "$lock" 2>/dev/null || true
 }
 
 # a sound copy of Weld: its bundle id, and its signature intact

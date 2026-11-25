@@ -26,7 +26,7 @@ Weld has no model of its own. It runs the agents you already use, signed in as y
 On a Mac with Apple silicon and macOS 13 or later, in Terminal:
 
 ```sh
-/bin/sh -c "$(curl -fsSL https://raw.githubusercontent.com/MohamedH1998/weld/main/install.sh)"
+s=$(curl -fsSL https://raw.githubusercontent.com/MohamedH1998/weld/main/install.sh) && /bin/sh -c "$s"
 ```
 
 That puts the latest Weld in Applications and opens it; run it again to update. Weld runs
