@@ -59,8 +59,9 @@ main() {
   # an update cut off hard last time: its old Weld is put back first, before anything is downloaded
   if [ ! -e "$target" ] && [ ! -L "$target" ]; then
     for left in "$dest"/.weld-install.*/Weld.app.previous; do
-      ours "$(dirname "$left")" && [ ! -L "$left" ] && checked "$left" || continue
-      mv "$left" "$target" || continue
+      ours "$(dirname "$left")" && [ -d "$left" ] && [ ! -L "$left" ] || continue
+      checked "$left" || fail "an earlier update left a Weld at $left that doesn't check out, so nothing was changed. Move it to the Trash (or to $target if you trust it), then run this again."
+      mv "$left" "$target" || fail "couldn't put back the Weld an earlier update left at $left. Move it to $target yourself, then run this again."
       # (and its folder goes too: the unused new copy in it, if any, only when it is a sound Weld and not a link, then
       # the folder with rmdir, which can only remove an empty folder)
       spare="$(dirname "$left")/Weld.app"
@@ -75,6 +76,8 @@ main() {
   if [ -e "$target" ] || [ -L "$target" ]; then
     [ ! -L "$target" ] || fail "$target is a link, not an app. Move it aside, then run this again."
     [ "$(bundle_id "$target")" = "$BUNDLE_ID" ] || fail "$target isn't Weld. Move it aside, then run this again."
+    # (the same check a cut-off update's backup must pass to be put back, so the old copy can always be recovered)
+    checked "$target" || fail "the Weld at $target doesn't check out (its signature is broken), so it wasn't replaced. Move it to the Trash, then run this again."
   fi
 
   # the download, checked against the SHA-256 pinned above before it is even opened
@@ -94,14 +97,19 @@ main() {
 
   running && fail "Weld is open. Quit it (⌘Q), then run this again."
 
-  if [ -e "$target" ]; then
+  # (looked at again now: something else may have been put at Weld.app while the download ran)
+  if [ -e "$target" ] || [ -L "$target" ]; then
+    [ ! -L "$target" ] && checked "$target" || fail "$target changed while Weld was downloading and isn't a sound Weld now, so it wasn't touched."
     # (named before it is moved: whatever happens from here, cleanup knows where the old Weld is)
     old="$work/Weld.app.previous"
     mv "$target" "$old" || { old=""; fail "couldn't move the old Weld aside (macOS may be asking to let your terminal change apps: allow it in System Settings → Privacy & Security → App Management). Your installed Weld is unchanged."; }
-    mv "$work/Weld.app" "$target" || fail "couldn't put the new Weld in place."
-  else
-    mv "$work/Weld.app" "$target" || fail "couldn't put Weld in $dest."
+    # (what was moved aside must be the Weld checked a moment ago: if not, it goes straight back, untouched)
+    if ! checked "$old"; then mv "$old" "$target"; old=""; fail "$target changed during the update, so it was put back as it was."; fi
   fi
+  # (mv into a path that is a folder moves inside it: so if anything appeared at Weld.app since, the new copy is taken
+  # back out and nothing is left inside it)
+  mv "$work/Weld.app" "$target" || fail "couldn't put the new Weld in place."
+  if [ -e "$target/Weld.app" ]; then mv "$target/Weld.app" "$work/Weld.app"; fail "something appeared at $target during the update, so it was left as it was."; fi
   swapped=1
 
   say "Weld is installed: $target"

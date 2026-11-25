@@ -70,10 +70,17 @@ Both apps' checks exercise it: the Mac app's `test/diagrams.mjs` and the web can
 
 ## Releasing
 
-A release is also pinned in `install.sh`, which installs exactly that release: after `pnpm --filter @weld/mac release`,
-run `scripts/pin-release.sh` and commit the version and SHA-256 it writes, with the release's tag.
+A release is what `install.sh` installs, checked against the SHA-256 written in it, so it is published from the very
+build that was pinned:
 
-Mac releases are built by `.github/workflows/release.yml` when a tag like `v0.2.0` is pushed; the tag must match the
+```sh
+pnpm --filter @weld/mac release       # builds out/release/Weld-<version>-arm64.{dmg,zip} and SHA256SUMS.txt
+scripts/pin-release.sh                # writes that version and the zip's SHA-256 into install.sh
+git commit -am "release: v<version>" && git tag v<version> && git push && git push --tags
+gh release create v<version> apps/mac/out/release/* --title "Weld <version>"
+```
+
+`.github/workflows/release.yml` can build a release in CI instead, run by hand for a tag (then pin its zip, not a local one); the tag must match the
 version in `apps/mac/package.json`. It builds the app, signs it if set up, checks the app copied out of the DMG, and drafts a
 GitHub release with the DMG, a zip and their checksums. Publish the draft when it looks right.
 

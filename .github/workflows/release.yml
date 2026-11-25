@@ -1,9 +1,10 @@
 name: Release
 
-# Push a tag like v0.2.0 (matching package.json's version) to build, sign when set up, check and draft a release.
+# Builds, signs when set up, checks and drafts a release, when run by hand for a tag like v0.2.0 (matching package.json's
+# version). Not on every tag push: install.sh pins the SHA-256 of the exact zip it installs, so a release is published
+# from the build that was pinned (see CONTRIBUTING.md), and a second build of the same tag would not match it.
 on:
-  push:
-    tags: ["v*"]
+  workflow_dispatch:
 
 permissions:
   contents: write
