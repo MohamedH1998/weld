@@ -9,7 +9,7 @@ import {
   AlignBottomSimple, AlignCenterHorizontalSimple, AlignCenterVerticalSimple, AlignLeftSimple, AlignRightSimple, AlignTopSimple,
   ArrowsOutLineHorizontal, ArrowsOutLineVertical,
   Circle, Cursor, Eye, EyeSlash, Path, Sparkle, ArrowUUpLeft, Plugs, DotsThree, CaretLeft, Prohibit, Cpu, Repeat, Diamond, DotsSix, DotsSixVertical, FilmStrip, Trash, Hand, LineSegment, Pause, Play, Shapes, Stop, TreeStructure, Minus, Plus, Rectangle, TextT,
-  TextAlignLeft, TextAlignCenter, TextAlignRight, GitFork, GitMerge, BezierCurve, CaretDown, Check,
+  TextAlignLeft, TextAlignCenter, TextAlignRight, GitFork, GitMerge, BezierCurve, CaretDown, Check, Sun, Moon, Desktop,
 } from "@phosphor-icons/react";
 import type { Icon } from "@phosphor-icons/react";
 import { Editor } from "@weld/canvas/editor";
@@ -25,6 +25,8 @@ import { curve } from "@weld/canvas/anim";
 import { ACCEPTED } from "./accepted";
 import { PATTERNS } from "@weld/canvas/patterns";
 import { ShareBar } from "./ShareBar";
+import { setThemePref, THEME_EVENT, THEMES, themePref, wantsDark } from "./theme";
+import type { ThemePref } from "./theme";
 import { offerTools } from "./agent";
 import type { StampDef } from "@weld/canvas/stamps";
 import { labelSpot, labelTrack, setShapeLook, voiced, legendLines } from "@weld/canvas/shapes";
@@ -119,7 +121,7 @@ export function CanvasView({ board, catalogue }: { board?: string; catalogue?: b
     };
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
     // (see /lab) a study board can ask for its own ground: dark or light whatever the system says, and ruled, dotted or bare
-    const asked = new URLSearchParams(window.location.search), forced = asked.get("theme") === "dark" || asked.get("theme") === "black" ? true : asked.get("theme") === "light" ? false : null;
+    const asked = new URLSearchParams(window.location.search);
     setGround(asked.get("ground") === "lines" ? "lines" : asked.get("ground") === "none" ? "none" : "dots");
     if (asked.get("accent") === "orange") setAccent("#c2500f", "#e0661f");
     if (asked.get("accent") === "ink") setAccent("#1c1c1c", "#f0f0f0");
@@ -129,15 +131,19 @@ export function CanvasView({ board, catalogue }: { board?: string; catalogue?: b
     // the faces it is set in: asked for by a study board, or as chosen here before (see the board's own menu)
     const faceAsked = asked.get("face") === "geist" ? "geist" : asked.get("demo") === "1" ? null : (localStorage.getItem(FACE_KEY) as Face | null);
     if (faceAsked && faceAsked !== "figtree" && (faceAsked === "geist" || FACE_LIST.some((f) => f.id === faceAsked))) chooseFace(editor, faceAsked, false);
-    let isDark = forced ?? mq.matches;
+    // light or dark: as the address asks (a study board), else as chosen on the board, else as the system is
+    const dark = () => wantsDark(asked.get("theme"), themePref(), mq.matches);
+    let isDark = dark();
     const onScheme = () => {
-      isDark = forced ?? mq.matches;
+      isDark = dark();
       document.documentElement.dataset.mode = isDark ? "dark" : "light";
+      document.documentElement.style.colorScheme = isDark ? "dark" : "light";
       setDark(isDark);
       dirty = true;
     };
     onScheme();
     mq.addEventListener("change", onScheme);
+    window.addEventListener(THEME_EVENT, onScheme);
     resize();
     window.addEventListener("resize", resize);
     const variant = readVariant(window.location.search);
@@ -257,6 +263,7 @@ export function CanvasView({ board, catalogue }: { board?: string; catalogue?: b
       cancelAnimationFrame(raf);
       unsub();
       mq.removeEventListener("change", onScheme);
+      window.removeEventListener(THEME_EVENT, onScheme);
       window.removeEventListener("resize", resize);
       window.removeEventListener("pagehide", flush);
       vv?.removeEventListener("resize", onKeyboard);
@@ -554,9 +561,11 @@ export function CanvasView({ board, catalogue }: { board?: string; catalogue?: b
               <ArrowClockwise size={16} />
             </button>
           </Tip>
+          <span className="mx-1 h-4 w-px bg-kumo-line" />
+          <ThemeButton />
         </div>
 
-        {ready && !v.demo && <ShareBar board={board} handed={!!handed} copied={!!handed?.copied} doc={() => store.doc} flush={() => flushRef.current()} onLive={(key, copied) => goLiveRef.current(key, copied)} />}
+        {(ready || handed) && !v.demo && <ShareBar board={board} handed={!!handed} copied={!!handed?.copied} doc={() => store.doc} flush={() => flushRef.current()} onLive={(key, copied) => goLiveRef.current(key, copied)} />}
         {unsaved && !moved && (
           <div className={`absolute left-1/2 top-4 z-50 -translate-x-1/2 px-3 py-2 text-[13px] text-red-600 dark:text-red-400 ${PANEL}`}>Not saved: {unsaved}</div>
         )}
@@ -1880,6 +1889,27 @@ function toClipboard(text: string) {
 }
 
 // ── right-click ─────────────────────────────────────────────────────
+/** Light, dark or as the system is: one button that steps through the three, its icon showing which is chosen. */
+function ThemeButton() {
+  const [pref, setPref] = useState<ThemePref>("system");
+  useEffect(() => {
+    setPref(themePref());
+    const on = () => setPref(themePref());
+    window.addEventListener(THEME_EVENT, on);
+    return () => window.removeEventListener(THEME_EVENT, on);
+  }, []);
+  const next: Record<ThemePref, ThemePref> = { system: "light", light: "dark", dark: "system" };
+  const name = THEMES.find((t) => t.id === pref)!.name;
+  const Glyph = pref === "light" ? Sun : pref === "dark" ? Moon : Desktop;
+  return (
+    <Tip label={`Theme: ${name.toLowerCase()}`}>
+      <button className={CELL} aria-label={`Theme: ${name}. Change to ${THEMES.find((t) => t.id === next[pref])!.name}`} onClick={() => setThemePref(next[pref])}>
+        <Glyph size={16} />
+      </button>
+    </Tip>
+  );
+}
+
 const FACE_KEY = "canvas:face:v1";
 /** Sets the whole board in another pair of faces, and redraws once they have loaded. */
 function chooseFace(editor: Editor, to: Face, keep = true) {
@@ -1929,6 +1959,9 @@ function ContextMenu({ editor, at, close, leaving }: { editor: Editor; at: { x: 
         "rule",
         // the board's own faces, for whatever has none of its own (a selection's are changed from its bar)
         ...FACE_LIST.map((f): Row => ({ label: `Set in ${f.name}`, checked: face() === f.id, run: () => chooseFace(editor, f.id) })),
+        "rule",
+        // light or dark, or as the system is (the same choice as the bar's button)
+        ...THEMES.map((t): Row => ({ label: t.id === "system" ? "Theme: match system" : `Theme: ${t.name.toLowerCase()}`, checked: themePref() === t.id, run: () => setThemePref(t.id) })),
 
       ];
   // rows are taller under a finger

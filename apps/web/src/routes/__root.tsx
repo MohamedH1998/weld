@@ -1,6 +1,7 @@
 import { HeadContent, Outlet, Scripts, createRootRoute } from "@tanstack/react-router";
 import appCss from "../styles.css?url";
 import { SITE } from "../site";
+import { THEME_SCRIPT } from "../canvas/theme";
 
 const ABOUT = "Diagrams that show how systems work, on Weld's canvas: play them, change them, copy them onto your board.";
 
@@ -42,8 +43,11 @@ export const Route = createRootRoute({
 
 function RootDocument({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    // (light or dark is set on <html> by the script below before React arrives, so it differs from the server's on purpose)
+    <html lang="en" suppressHydrationWarning>
       <head>
+        {/* light or dark, decided before the first paint (see canvas/theme.ts) */}
+        <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
         <HeadContent />
       </head>
       <body>

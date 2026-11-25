@@ -10,7 +10,7 @@ import type { Doc } from "@weld/canvas/types";
 /** 128 random bits, as a board's key. */
 const freshKey = () => btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(16)))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 // (the floating button, in the same layer as the board's other controls)
-const PILL = "ctl flex h-9 items-center gap-2 rounded-[10px] bg-kumo-base px-3 text-[13px] font-medium text-kumo-default shadow-[0_1px_2px_rgba(0,0,0,0.06),0_4px_14px_rgba(0,0,0,0.06)] ring ring-kumo-line hover:bg-kumo-elevated disabled:opacity-60 dark:shadow-[0_4px_14px_rgba(0,0,0,0.4)]";
+const PILL = "ctl flex h-9 items-center gap-2 rounded-[10px] bg-kumo-base px-3 text-[13px] font-medium text-kumo-default shadow-[0_1px_2px_rgba(0,0,0,0.06),0_4px_14px_rgba(0,0,0,0.06)] ring ring-kumo-line hover:bg-kumo-elevated aria-busy:cursor-progress dark:shadow-[0_4px_14px_rgba(0,0,0,0.4)]";
 const CARD = "ui-in w-[min(380px,calc(100vw-32px))] shadow-[0_12px_32px_-12px_rgba(0,0,0,0.18),0_1px_2px_rgba(0,0,0,0.04)] dark:shadow-[0_12px_32px_-12px_rgba(0,0,0,0.6)]";
 const STRIP = "my-0 px-3.5 py-2.5 text-[12.5px]";
 const ROW = "flex h-9 items-center gap-1 rounded-md bg-kumo-elevated pl-3 pr-1 ring ring-inset ring-kumo-hairline";
@@ -86,14 +86,37 @@ export function ShareBar({ board, handed, copied, doc, flush, onLive }: { board?
   const [open, setOpen] = useState<null | "panel" | "renew">(handed ? "panel" : null);
   const [menu, setMenu] = useState(false);
   const [busy, setBusy] = useState(false);
+  // ("Sharing…" is said only if sharing is slow: a quick one goes straight from Share to Shared, with no flicker between)
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    if (!busy) return setSlow(false);
+    const t = setTimeout(() => setSlow(true), 500);
+    return () => clearTimeout(t);
+  }, [busy]);
   const [failed, setFailed] = useState<string | null>(null);
   // (just shared: the link was copied for you, and its button says so for a moment)
   const [fresh] = useState(!!copied);
   const nextKey = useRef<string | null>(null);
   const box = useRef<HTMLDivElement>(null);
+  const pill = useRef<HTMLButtonElement>(null);
+  const card = useRef<HTMLDivElement>(null);
+  const menuBox = useRef<HTMLDivElement>(null);
+  // the menu closes on a press anywhere outside it, in the card or not
+  useEffect(() => {
+    if (!menu) return;
+    const away = (e: PointerEvent) => { if (!menuBox.current?.contains(e.target as Node)) setMenu(false); };
+    window.addEventListener("pointerdown", away, true);
+    return () => window.removeEventListener("pointerdown", away, true);
+  }, [menu]);
   useEffect(() => {
     if (!open) return;
-    const away = (e: PointerEvent) => { if (!box.current?.contains(e.target as Node)) { setOpen(null); setMenu(false); } };
+    // (only the button and the card count as inside: the empty space beside the button, above the card, is the board's)
+    const away = (e: PointerEvent) => {
+      const t = e.target as Node;
+      if (pill.current?.contains(t) || card.current?.contains(t)) return;
+      setOpen(null);
+      setMenu(false);
+    };
     const esc = (e: KeyboardEvent) => { if (e.key === "Escape") { if (menu) setMenu(false); else setOpen(null); } };
     window.addEventListener("pointerdown", away);
     window.addEventListener("keydown", esc, true);
@@ -149,26 +172,27 @@ export function ShareBar({ board, handed, copied, doc, flush, onLive }: { board?
   };
 
   return (
-    <div ref={box} className="absolute right-4 top-4 z-40 flex flex-col items-end gap-2" onMouseDown={(e) => { if (!(e.target as HTMLElement).closest("code")) e.preventDefault(); }}>
+    <div ref={box} className="pointer-events-none absolute right-4 top-4 z-40 flex flex-col items-end gap-2 [&>*]:pointer-events-auto" onMouseDown={(e) => { if (!(e.target as HTMLElement).closest("code")) e.preventDefault(); }}>
       <button
+        ref={pill}
         className={PILL}
-        disabled={busy && !board}
+        aria-busy={busy && !board ? true : undefined}
         aria-expanded={!!open}
-        onClick={() => (board ? setOpen(open ? null : "panel") : void share())}
+        onClick={() => (board ? setOpen(open ? null : "panel") : busy ? undefined : void share())}
       >
         {board ? <span className="size-2 rounded-full bg-kumo-brand" /> : <ShareNetwork size={15} />}
-        {board ? "Shared" : busy ? "Sharing…" : "Share"}
+        {board ? "Shared" : slow ? "Sharing…" : "Share"}
       </button>
 
       {open === "panel" && (
         !board ? (
-          <LayerCard role="alert" className={`${CARD} p-3.5 text-[13px] text-kumo-danger`}>{failed}</LayerCard>
+          <LayerCard ref={card} role="alert" className={`${CARD} p-3.5 text-[13px] text-kumo-danger`}>{failed}</LayerCard>
         ) : (
-          <LayerCard role="dialog" aria-label="Share" className={CARD}>
+          <LayerCard ref={card} role="dialog" aria-label="Share" className={CARD}>
             <LayerCard.Secondary className={STRIP}>
               <span className="min-w-0 flex-1 truncate">Anyone with the link can see and edit</span>
               {/* (its centre lines up with the copy buttons' below: both sit 32px in from the card's right edge) */}
-              <div className="relative -my-1 mr-1">
+              <div ref={menuBox} className="relative -my-1 mr-1">
                 <button className={ICON} aria-label="Link options" aria-expanded={menu} onClick={() => setMenu((m) => !m)}><DotsThree size={16} weight="bold" /></button>
                 {menu && (
                   <div role="menu" className="ui-in absolute right-0 top-9 z-10 w-40 rounded-lg bg-kumo-base p-1 shadow-[0_8px_24px_rgba(0,0,0,0.12)] ring ring-kumo-line">
@@ -191,7 +215,7 @@ export function ShareBar({ board, handed, copied, doc, flush, onLive }: { board?
       )}
 
       {open === "renew" && (
-        <LayerCard role="dialog" aria-label="New link" className={CARD}>
+        <LayerCard ref={card} role="dialog" aria-label="New link" className={CARD}>
           <LayerCard.Secondary className={STRIP}>New link</LayerCard.Secondary>
           <LayerCard.Primary className="gap-3 p-3.5">
             <span className="text-[13px] leading-[1.5] text-kumo-default">The board stays as it is, at a new link. The old link, and agents connected with it, stop working.</span>
