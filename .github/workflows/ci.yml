@@ -2,8 +2,16 @@ name: CI
 
 on:
   pull_request:
+    paths-ignore: ["**/*.md", "docs/**", "install.sh", "scripts/pin-release.sh", ".github/ISSUE_TEMPLATE/**"]
   push:
     branches: [main]
+    # (words and the install script only: nothing CI builds or checks has changed)
+    paths-ignore: ["**/*.md", "docs/**", "install.sh", "scripts/pin-release.sh", ".github/ISSUE_TEMPLATE/**"]
+
+# a newer push to the same branch replaces a run still going
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
