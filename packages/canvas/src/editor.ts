@@ -6,7 +6,7 @@ import {
 import { frame, HOLD, OVER, position, restart } from "./anim";
 import type { Theme } from "./render";
 import { arrowLabelRect, clock, emptyOverlay, stage, HANDLE, LABEL_SIZE, face, layoutText, textLayout, labelWidth, withFace, LINE, PAD, ROTATE_OUT, selectionFrame, visibleStubs } from "./render";
-import { cleanDoc, cleanShapes } from "./clean";
+import { cleanDoc, cleanShapes, fromOutside, scenesFromOutside } from "./clean";
 import { KEY_TO_KIND, KINDS } from "./kinds";
 import { grips, labelText, labelTrack, segmentParts, slid, tableRows, timelinePoints, unitColumns } from "./shapes";
 import { ACCEPTED } from "./accepted";
@@ -1625,19 +1625,24 @@ export class Editor {
   /** The selection as text for the system clipboard. */
   serialize(): string {
     const whole = this.wholeScenes(), shapes = this.clone(this.selected(), 0, 0), scenes = this.scenesFor(whole);
-    return JSON.stringify({ canvas: 1, shapes, ...(Object.keys(scenes).length ? { scenes } : {}) });
+    return (this.copied = JSON.stringify({ canvas: 1, shapes, ...(Object.keys(scenes).length ? { scenes } : {}) }));
   }
+  /** What this board last put on the clipboard: pasted back exactly, it is the person's own copy. */
+  private copied = "";
   /** Paste from the system clipboard: our own shapes, or plain text as a line of text. */
   pasteText(text: string, at?: Pt) {
     if (this.g.type !== "idle") return;
     try {
       const data = JSON.parse(text) as { canvas?: number; shapes?: unknown; scenes?: unknown } | null;
       if (data && data.canvas === 1) {
-        // the clipboard is outside the board: only well-formed shapes come in
-        const shapes = cleanShapes(data.shapes);
+        // the clipboard is outside the board: only well-formed shapes come in, and unless they are the person's own
+        // copy, nothing in them runs, opens a local file or speaks for a thread by being put down
+        const ours = text === this.copied;
+        const shapes = ours ? cleanShapes(data.shapes) : fromOutside(cleanShapes(data.shapes));
         if (!shapes.length) return;
+        const scenes = cleanDoc({ shapes: {}, order: [], scenes: data.scenes }).scenes ?? {};
         this.clip = shapes;
-        this.clipScenes = cleanDoc({ shapes: {}, order: [], scenes: data.scenes }).scenes ?? {};
+        this.clipScenes = ours ? scenes : scenesFromOutside(scenes);
         return this.paste(at);
       }
     } catch {

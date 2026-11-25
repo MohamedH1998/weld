@@ -157,6 +157,23 @@ export function cleanShapes(raw: unknown): Shape[] {
   return out.filter(Boolean);
 }
 
+/** Shapes from outside the board (another app's clipboard, a page, a shared board), stripped of what would act for
+ *  the person: a command to run, a folder to run it in, a local file to show or watch, and whose a thing is. What
+ *  is left still looks the same; it only no longer does anything by being put down. */
+export function fromOutside(shapes: Shape[]): Shape[] {
+  return shapes.map((sh) => {
+    if (sh.kind === "arrow" || sh.kind === "text") return sh;
+    const { live, img, ...box } = sh;
+    const { run: _r, cmd: _c, cwd: _w, from: _f, by: _b, drew: _d, sees: _s, url, ...kept } = live ?? {};
+    const still: Live = { ...kept, ...(url && /^https?:\/\//i.test(url) ? { url } : {}) };
+    return { ...box, ...(Object.keys(still).length ? { live: still } : {}), ...(img ? { img: (({ origin: _o, by: _p, ...rest }) => rest)(img) } : {}) };
+  });
+}
+/** Scenes from outside the board, their moments' shapes stripped the same way. */
+export function scenesFromOutside(scenes: Record<string, Scene>): Record<string, Scene> {
+  return Object.fromEntries(Object.entries(scenes).map(([g, sc]) => [g, { ...sc, moments: sc.moments.map((m) => ({ ...m, shapes: fromOutside(m.shapes) })) }]));
+}
+
 /** A saved board, made safe to use. */
 export function cleanDoc(raw: unknown): Doc {
   if (!rec(raw) || !rec(raw.shapes) || !Array.isArray(raw.order)) return { shapes: {}, order: [] };
