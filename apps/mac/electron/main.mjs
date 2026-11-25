@@ -1207,11 +1207,16 @@ app.on("web-contents-created", (_e, contents) => {
   // page is given a few lines that report it (its direction and where it was, nothing else), and keep the page itself
   // from zooming. A page could fake one; all it could do with that is zoom the board.
   const PINCH = "\u0000weld-pinch";
-  const listen = `(() => { if (window.__weldPinch) return; window.__weldPinch = 1; addEventListener("wheel", (e) => { if (!e.ctrlKey) return; e.preventDefault(); e.stopImmediatePropagation(); console.debug(${JSON.stringify(PINCH)}, e.deltaY, e.clientX, e.clientY); }, { passive: false, capture: true }); })()`;
+  // It also says, at most once a second, that the page has changed, so its still is taken again only when there is
+  // something new to show (taking one costs the GPU memory that stays held while stills keep being taken).
+  const CHANGED = "\u0000weld-changed";
+  const listen = `(() => { if (window.__weldPinch) return; window.__weldPinch = 1; addEventListener("wheel", (e) => { if (!e.ctrlKey) return; e.preventDefault(); e.stopImmediatePropagation(); console.debug(${JSON.stringify(PINCH)}, e.deltaY, e.clientX, e.clientY); }, { passive: false, capture: true }); let told = 0, owed = 0; const tell = () => { const now = Date.now(); if (now - told >= 1000) { told = now; console.debug(${JSON.stringify(CHANGED)}); } else if (!owed) owed = setTimeout(() => { owed = 0; tell(); }, 1000 - (now - told)); }; new MutationObserver(tell).observe(document, { subtree: true, childList: true, attributes: true, characterData: true }); for (const t of ["scroll", "resize", "animationstart", "transitionstart", "play", "loadeddata"]) addEventListener(t, tell, { capture: true, passive: true }); })()`;
   contents.on("dom-ready", () => void contents.executeJavaScript(listen).catch(() => {}));
   contents.on("console-message", (...a) => {
     const e = a[0], message = typeof e?.message === "string" ? e.message : a[2];
-    if (typeof message !== "string" || !message.startsWith(PINCH)) return;
+    if (typeof message !== "string") return;
+    if (message.startsWith(CHANGED)) return void (changed = true);
+    if (!message.startsWith(PINCH)) return;
     const [dy, x, y] = message.slice(PINCH.length).trim().split(/\s+/).map(Number);
     if (![dy, x, y].every(Number.isFinite)) return;
     pinchedAt = Date.now();
@@ -1219,7 +1224,8 @@ app.on("web-contents-created", (_e, contents) => {
   });
   // A still of the page, kept fresh: while the board's zoom is moving the still is shown in the page's place,
   // because a live page draws itself again from nothing at every step of a zoom.
-  let timer = null, busy = false, pinchedAt = 0;
+  // (changed: the page said it has changed since the last still; tookAt: when that still was taken)
+  let timer = null, busy = false, pinchedAt = 0, changed = true, tookAt = 0;
   const still = async () => {
     timer = null;
     // (not in the middle of a pinch: taking a still holds up the very thread the pinch's steps come through)
@@ -1228,6 +1234,8 @@ app.on("web-contents-created", (_e, contents) => {
     if (busy || contents.isDestroyed() || !win || win.isMinimized() || !win.isVisible()) return;
     busy = true;
     try {
+      changed = false;
+      tookAt = Date.now();
       const img = await contents.capturePage();
       if (!img.isEmpty()) send("browser:still", { from: contents.id, jpeg: img.toJPEG(84) });
     } catch {
@@ -1241,7 +1249,9 @@ app.on("web-contents-created", (_e, contents) => {
   };
   contents.on("did-stop-loading", () => soon(350));
   contents.on("input-event", () => soon(250));
-  const beat = setInterval(() => !timer && !asleep.has(contents.id) && still(), 5000);
+  // every 5 s if the page has changed since its last still (drawing it anew on a canvas or in a video says nothing,
+  // so an unchanged-seeming page is still taken again each minute)
+  const beat = setInterval(() => !timer && !asleep.has(contents.id) && (changed || Date.now() - tookAt > 60000) && still(), 5000);
   stills.set(contents.id, still);
   contents.on("destroyed", () => {
     clearInterval(beat);
