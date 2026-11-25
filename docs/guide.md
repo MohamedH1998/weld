@@ -9,8 +9,8 @@ The install line in the README runs [install.sh](../install.sh) with your own ac
 names one release and the SHA-256 of its download; it checks the download against that and against Weld's signature
 before anything is installed, and puts Weld in `/Applications` (or `~/Applications`, or wherever Weld already is). It
 only ever changes `Weld.app`, and leaves alone anything there that isn't a sound copy of Weld. An update makes and
-checks the new copy beside the old one, then has macOS exchange the two in one step, so there is never a moment without
-a working Weld.
+checks the new copy in a private folder of its own, then has macOS exchange the two in one step, so there is never a
+moment without a working Weld; the Weld it replaced goes to the Trash.
 
 **Not notarized yet.** Weld's releases are signed ad hoc, not by an Apple Developer ID. An app installed by the script
 opens normally, because macOS only checks apps it has marked as downloaded by a browser, Mail or AirDrop. If you

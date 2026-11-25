@@ -13,7 +13,8 @@
 #     ever does in Applications is one rename of Weld.app, done by the system in a single step (renameatx_np):
 #     RENAME_SWAP to exchange the old Weld for the new one (so there is never a moment without a Weld), or, for a first
 #     install, RENAME_EXCL, which fails rather than touch anything that has appeared there;
-#   - it never replaces anything at Weld.app that isn't the sound Weld it found, and it starts nothing itself.
+#   - it never replaces anything at Weld.app that isn't the sound Weld it found; the Weld it replaces goes to the Trash;
+#     it deletes only its own download, and it starts nothing itself.
 
 set -eu
 
@@ -63,8 +64,9 @@ main() {
   for left in "$home_dir"/weld-install.*; do
     [ -e "$left" ] && say "weld: an earlier install kept something at $left. Look inside before deleting it." >&2
   done
-  tmp=$(mktemp -d "$home_dir/weld-install.XXXXXX")
-  private "$tmp" || fail "couldn't make a private folder in $home_dir."
+  made=$(mktemp -d "$home_dir/weld-install.XXXXXX") || fail "couldn't make a folder in $home_dir."
+  private "$made" || fail "couldn't make a private folder in $home_dir (it is left at $made)."
+  tmp="$made"
   [ "$(stat -f %d "$tmp")" = "$(stat -f %d "$dest")" ] || fail "$dest isn't on the same disk as this account's temporary folder, which the installer needs to swap Weld in safely."
 
   # one install at a time into this folder (mkdir: only one run can make it; if it is there, this run stops)
@@ -101,6 +103,8 @@ main() {
       swap "$new" "$target" || fail "$target changed during the update and couldn't be swapped back. What was there is at $new; move it back yourself."
       fail "$target changed during the update, so it was put back as it was."
     fi
+    # the Weld it replaced goes to the Trash, not away: it may be a build of the person's own
+    to_trash "$new" || say "weld: the previous Weld is kept at $new (it couldn't be moved to the Trash)." >&2
   else
     # a first install: only into an empty place (it fails, touching nothing, if anything has appeared there)
     place "$new" "$target" || fail "something appeared at $target during the install, so it was left as it was."
@@ -110,13 +114,20 @@ main() {
   say "Weld is installed in $dest. Open it from there (or Spotlight: Weld)."
 }
 
-# On the way out, however it ends: this run's private folder goes (it holds only the download, the new copy, or the
-# old Weld swapped out), except when an update was refused after something unknown came out of Applications: then it is
-# kept, and said where. The lock is let go.
+# On the way out, however it ends: what is in this run's folder is sorted out first. This run's own download, still
+# sound, is deleted; the Weld that was found at Weld.app goes to the Trash; anything else is kept where it is, and said
+# (the next run says so too). Then the folder goes, if empty of all but the download, and the lock is let go.
 cleanup() {
   if [ -n "$tmp" ] && [ -d "$tmp" ]; then
-    if occupied "$tmp/new/Weld.app" && ! known "$tmp/new/Weld.app"; then
-      say "weld: kept $tmp, which holds something that came out of $dest unexpectedly. Look inside before deleting it (the next run will remind you)." >&2
+    it="$tmp/new/Weld.app"
+    if occupied "$it"; then
+      id=$(identity "$it")
+      if [ "$id" != none ] && [ "$id" = "$ours_id" ] && checked "$it"; then rm -rf "$it"
+      elif [ -n "$was" ] && [ "$id" = "$was" ]; then to_trash "$it" || true
+      fi
+    fi
+    if occupied "$it"; then
+      say "weld: kept $tmp, which holds something that came out of $dest. Look inside before deleting it (the next run will remind you)." >&2
     else
       rm -rf "$tmp"
     fi
@@ -124,17 +135,18 @@ cleanup() {
   [ -z "$lock" ] || rmdir "$lock" 2>/dev/null || true
 }
 
-# a folder only this account can use: a real folder (not a link), owned by it, mode 700, and with no ACL entries
-private() {
-  [ -d "$1" ] && [ ! -L "$1" ] && [ -O "$1" ] && [ "$(stat -f '%Lp' "$1")" = 700 ] && [ -z "$(ls -led "$1" | sed 1d)" ]
+# Moves a Weld to this account's Trash (the same disk, so a rename), under a name of its own: never over anything.
+to_trash() {
+  [ -d "$HOME/.Trash" ] || return 1
+  place "$1" "$HOME/.Trash/Weld (replaced $(date +%Y-%m-%d\ %H.%M.%S)).app"
 }
 
-# whether something in this run's folder is known: this run's own new copy or the very Weld found at the start (by
-# identity), and still a sound Weld (checked: either may have spent a moment in Applications); a failed lookup is unknown
-known() {
-  id=$(identity "$1")
-  [ "$id" != none ] || return 1
-  { [ "$id" = "$ours_id" ] || { [ -n "$was" ] && [ "$id" = "$was" ]; }; } && checked "$1"
+# a folder only this account can use: a real folder (not a link), owned by it, mode 700, and with no ACL entries
+private() {
+  [ -d "$1" ] && [ ! -L "$1" ] && [ -O "$1" ] && [ "$(stat -f '%Lp' "$1" 2>/dev/null)" = 700 ] || return 1
+  # (the listing must succeed and show the folder's line only: any further line is an ACL entry)
+  listing=$(ls -led "$1" 2>/dev/null) || return 1
+  [ -n "$listing" ] && [ "$(printf '%s\n' "$listing" | wc -l | tr -d ' ')" = 1 ]
 }
 
 # a path's identity on disk (device and inode: the same folder keeps it when renamed or swapped)
