@@ -103,7 +103,7 @@ export function CanvasView() {
     const ctx = canvas.getContext("2d")!;
     const above = aboveRef.current!, actx = above.getContext("2d")!;
     let dirty = true;
-    let aboveBare = false;
+    let aboveBare = false, shrink = 0;
     let raf = 0;
     let dpr = window.devicePixelRatio || 1;
     let sized = false;
@@ -206,9 +206,15 @@ export function CanvasView() {
         const o = editor.overlay;
         const bare = !sel.size && !store.editing && !playing && !o.hoverFrame && !o.marquee && !o.guides.length && !o.bindBox && !o.stubsFor && !o.hover && !o.scope && !o.ghost && !o.kin && !o.flash && !o.aim;
         if (!bare || !aboveBare) {
+          if (!bare && (above.width !== canvas.width || above.height !== canvas.height)) (above.width = canvas.width), (above.height = canvas.height);
           render(actx, { ...editor.view, dpr }, doc, store.cam, sel, store.editing, o, th, store.grid, "above");
           above.style.visibility = bare ? "hidden" : "visible";
           aboveBare = bare;
+          // Empty for a while, it is shrunk to a single pixel: a window-sized sheet holds ~20 MB of GPU memory even
+          // hidden, and more while anything on screen is changing. (Only once the board has been still a moment, so it
+          // is never made again in the middle of a gesture; it gets its size back the moment something is in hand.)
+          clearTimeout(shrink);
+          if (bare) shrink = window.setTimeout(() => aboveBare && (above.width = above.height = 1), 2000);
         }
         if (playing) dirty = true;
       }
@@ -267,6 +273,7 @@ export function CanvasView() {
     if (weld.info.test) (window as unknown as { __editor: Editor }).__editor = editor;
     return () => {
       cancelAnimationFrame(raf);
+      clearTimeout(shrink);
       unsub();
       mq.removeEventListener("change", onScheme);
       window.removeEventListener("resize", resize);
