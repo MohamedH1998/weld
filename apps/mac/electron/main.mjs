@@ -13,6 +13,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { AcpHost, SHIM, listen, socketPathFor } from "./acp.mjs";
+import { admit } from "./peers.mjs";
 import { Threads } from "./agents.mjs";
 import { processGroups } from "./groups.mjs";
 import { lifeRecord } from "./life.mjs";
@@ -455,9 +456,43 @@ const acpBoard = {
     }
   },
 };
+/** Who may use Weld's threads from outside: the apps the person has let in, remembered; any other is asked about. */
+const asking = new Map();
+const acpGate = {
+  self: process.pid,
+  test: TEST,
+  allowed: () => readJson(file("acp-clients.json"), { apps: [] }).apps ?? [],
+  allow: (a) => writeJson(file("acp-clients.json"), { apps: [...new Set([...acpGate.allowed(), a])] }),
+  // (one question per app at a time: its other connections wait for the same answer)
+  ask: ({ name, app: at }) => {
+    const key = at ?? name;
+    if (!asking.has(key)) {
+      const q = dialog
+        .showMessageBox(win && !win.isDestroyed() ? win : undefined, {
+          type: "question",
+          message: `${name} wants to use Weld's threads`,
+          detail: `It can start conversations with your agents in your folders, with the access those conversations have.${at ? " Weld remembers if you allow it." : " It is not an app Weld can recognise, so Weld will ask again next time."}`,
+          buttons: ["Allow", "Don't Allow"],
+          defaultId: 1,
+          cancelId: 1,
+        })
+        .then((r) => r.response === 0)
+        .finally(() => asking.delete(key));
+      asking.set(key, q);
+    }
+    return asking.get(key);
+  },
+};
 async function openAcp() {
   acp = new AcpHost({ threads, board: acpBoard, version: app.getVersion(), log: (s) => console.log(`weld: ${s}`) });
-  const r = await listen(acpSocket(), (socket) => acp.attach(socket));
+  const r = await listen(acpSocket(), (socket) => {
+    // (nothing it sends is read until it is let in: the socket waits, unread)
+    void admit(socket, acpGate).then((r) => {
+      if (r.ok) return acp.attach(socket);
+      console.log(`weld: refused a connection to Weld's threads: ${r.why}`);
+      socket.destroy();
+    });
+  });
   if (r.why) console.log(`weld: T3 Code connection is off: ${r.why}`);
   else acpListening = r;
 }
@@ -615,6 +650,12 @@ const roots = (() => {
   const all = new Map(Object.entries(readJson(p(), {})));
   return {
     get: (host) => all.get(host),
+    /** The approved folder `abs` is in (the nearest), and its address name; none if it is in none. */
+    holding(abs) {
+      let best = null;
+      for (const [host, dir] of all) if ((abs === dir || abs.startsWith(dir.endsWith(path.sep) ? dir : dir + path.sep)) && (!best || dir.length > best.dir.length)) best = { host, dir };
+      return best;
+    },
     add(dir) {
       const host = createHash("sha256").update(dir).digest("hex").slice(0, 20);
       if (all.get(host) !== dir) {
@@ -638,6 +679,17 @@ function localUrl(abs) {
     (dir = path.dirname(abs)), (name = path.basename(abs));
   }
   return `weld-local://${roots.add(dir)}/${name.split("/").map(encodeURIComponent).join("/")}`;
+}
+/** A file address as the address of a folder already approved, or null: what a board holds never approves one. */
+function knownFileUrl(u) {
+  try {
+    const x = new URL(u), abs = path.resolve(decodeURIComponent(x.pathname)), at = roots.holding(abs);
+    if (!at) return null;
+    const rel = path.relative(at.dir, abs);
+    return `weld-local://${at.host}/${rel.split(path.sep).filter(Boolean).map(encodeURIComponent).join("/")}${x.search}${x.hash}`;
+  } catch {
+    return null;
+  }
 }
 /** A file address as its folder's address, its ?query and #place kept. */
 function fromFileUrl(u) {
@@ -1698,8 +1750,9 @@ function wire() {
       if (svc.length) threads.meta(id, { services: (t.meta.services ?? []).filter((s) => !s.alive) });
     }
   });
-  // a file address, given by the person (typed, or on a board from before), as the address of its own folder
-  ipcMain.handle("local:url", (_e, u) => (typeof u === "string" && /^file:\/\//i.test(u) ? fromFileUrl(u) : u));
+  // a file address as the address of its own folder: approved when the person gives it (typed); one found on a board
+  // is shown only from a folder already approved
+  ipcMain.handle("local:url", (_e, u, given) => (typeof u === "string" && /^file:\/\//i.test(u) ? (given === true ? fromFileUrl(u) : knownFileUrl(u) ?? u) : u));
   // (what is connected is put in words when the agent begins the turn, not when it was sent: so a message that waits its turn
   // shows it as it is then, and what was "last seen" is what the agent really last saw)
   ipcMain.handle("thread:send", async (_e, id, msg) => {

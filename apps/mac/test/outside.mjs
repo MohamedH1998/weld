@@ -30,8 +30,12 @@ export default async ({ page }) => {
   check("a pasted picture names no local file", pic && !pic.img?.origin, pic?.img);
   await wait(3000);
   check("nothing pasted ran", !existsSync(marker));
-  const roots = await E(() => window.weld.localUrl("file:///nowhere-approved/x.html"));
-  check("a local address still opens when the person gives it", /^weld-local:\/\//.test(roots), roots);
+  const found = await E(() => window.weld.localUrl("file:///nowhere-approved/x.html"));
+  check("a local address on a board approves no folder", found === "file:///nowhere-approved/x.html", found);
+  const given = await E(() => window.weld.localUrl("file:///nowhere-approved/x.html", true));
+  check("a local address the person gives opens from its folder", /^weld-local:\/\//.test(given), given);
+  const again = await E(() => window.weld.localUrl("file:///nowhere-approved/y.html"));
+  check("…and from then on, a board's address in that folder opens too", /^weld-local:\/\/[^/]+\/y\.html$/.test(again), again);
 
   // the person's own copy, pasted back, is kept whole
   await E(() => {

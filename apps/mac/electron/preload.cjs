@@ -91,7 +91,7 @@ contextBridge.exposeInMainWorld("weld", {
   onStill: on("browser:still"),
   stillNow: (id) => ipcRenderer.send("browser:stillNow", id),
   pageAsleep: (id, on) => ipcRenderer.send("browser:asleep", id, on),
-  localUrl: (u) => ipcRenderer.invoke("local:url", u),
+  localUrl: (u, given) => ipcRenderer.invoke("local:url", u, given === true),
   onReveal: on("app:reveal"),
   onFocus: on("app:focus"),
   onEnv: on("app:env"),

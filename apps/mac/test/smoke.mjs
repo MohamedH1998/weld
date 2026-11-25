@@ -99,4 +99,10 @@ export default async ({ app, page, out }) => {
     refused = /apps outside Weld/.test(String(e.stderr));
   }
   check("weld acp is refused inside Weld", refused);
+  // nor by going round the weld command: a process Weld started is refused at the socket itself
+  const init = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: 1, clientCapabilities: {} } });
+  weld("run", `printf '%s\\n' '${init}' | env -u WELD_FROM -u WELD_URL -u WELD_TOKEN weld acp > round.txt 2>&1; echo done >> round.txt; sleep 30`);
+  await until(() => existsSync(path.join(dir, "round.txt")) && /done/.test(readFileSync(path.join(dir, "round.txt"), "utf8")), 20000);
+  const round = existsSync(path.join(dir, "round.txt")) ? readFileSync(path.join(dir, "round.txt"), "utf8") : "";
+  check("a process Weld started cannot reach its threads round the weld command", /done/.test(round) && !/protocolVersion/.test(round), round);
 };

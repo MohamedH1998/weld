@@ -47,11 +47,13 @@ export function BrowserNode({ box, editor, active, far }: NodeProps) {
   const field = useRef<HTMLInputElement>(null);
   const url = box.live?.url ?? "";
   // where the page was first pointed: later travel is the page's own business and must not reload it
-  // (a file address, from a board kept before local files had folders of their own, is put right first)
+  // (a file address on the board is shown from its folder only if that folder was already approved: a board, whoever
+  // made it, never approves one; otherwise the person opens the file again)
   const [start, setStart] = useState(/^file:\/\//i.test(url) ? "" : url);
   useEffect(() => {
     if (!/^file:\/\//i.test(url)) return;
     void weld.localUrl(url).then((to) => {
+      if (/^file:\/\//i.test(to)) return setFailed("open the file again to show it here");
       editor.store.quiet(() => editor.store.patch(box.id, { live: { ...box.live, url: to } }));
       setStart(to);
     });
@@ -84,7 +86,7 @@ export function BrowserNode({ box, editor, active, far }: NodeProps) {
   const visit = async (to: string) => {
     let address = toAddress(to);
     if (!address) return;
-    if (/^file:\/\//i.test(address)) address = await weld.localUrl(address);
+    if (/^file:\/\//i.test(address)) address = await weld.localUrl(address, true);
     setTyped(null);
     setFailed(null);
     const s = editor.store;

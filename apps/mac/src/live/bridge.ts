@@ -206,7 +206,8 @@ export interface Weld {
   onStill: (fn: (o: { from: number; jpeg: Uint8Array }) => void) => () => void;
   scratch: () => string | null;
   /** A file address as the address of its own folder (a page shows local files only from there). */
-  localUrl: (u: string) => Promise<string>;
+  /** A file address as a local page's address: approving its folder only when the person gave it (`given`). */
+  localUrl: (u: string, given?: boolean) => Promise<string>;
   onReveal: (fn: (id: string) => void) => () => void;
   onLook: (fn: (o: { thread: string; req: string; keys?: string[] }) => void) => () => void;
   onDraw: (fn: (o: { thread: string; req: string; ops: unknown }) => void) => () => void;
