@@ -2,7 +2,7 @@
 // app's own (see electron/agents.mjs), so which lab's agent answers is a
 // choice made per message, not a property of the thread.
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { ArrowsOutSimple, ArrowUp, At, CaretDown, CaretRight, ChatCircle, Check, Folder, FrameCorners, GitFork, Globe, Graph, Minus, NoteBlank, Shapes, Stop, TerminalWindow, X , Image as ImageIcon } from "@phosphor-icons/react";
+import { ArrowsOutSimple, At, CaretDown, CaretRight, ChatCircle, Check, Folder, FrameCorners, GitFork, Globe, Graph, KeyReturn, Minus, NoteBlank, Shapes, Stop, TerminalWindow, X , Image as ImageIcon } from "@phosphor-icons/react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { AgentLogo } from "./AgentLogo";
@@ -959,7 +959,7 @@ function Composer({ id, editor, meta, items, running, active, onFolder }: { id: 
           {running && !text.trim() ? (
             <button type="button" aria-label="Stop" className="thread-send ctl shrink-0" data-stop="1" onClick={() => void weld.thread.stop(id)}><Stop size={11} weight="fill" /></button>
           ) : (
-            <button type="button" aria-label="Send" className="thread-send ctl shrink-0" disabled={!text.trim()} onClick={send}><ArrowUp size={13} weight="bold" /></button>
+            <button type="button" aria-label="Send" className="thread-send ctl shrink-0" disabled={!text.trim()} onClick={send}><KeyReturn size={13} weight="bold" /></button>
           )}
         </div>
       </div>

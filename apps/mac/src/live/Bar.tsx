@@ -3,7 +3,7 @@
 // says what each of these threads is doing, and asks for the person there when it needs them; pressed, it opens the
 // whole conversation, which folds back down when done with. Any thread can still be put on the board as a card.
 import { memo, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { ArrowUp, CaretDown, Folder, X } from "@phosphor-icons/react";
+import { CaretDown, Folder, KeyReturn, X } from "@phosphor-icons/react";
 import type { Editor } from "@weld/canvas/editor";
 import { boundsOf } from "@weld/canvas/geometry";
 import type { Box, Id } from "@weld/canvas/types";
@@ -271,7 +271,7 @@ export const Bar = memo(function Bar({ editor, dark }: { editor: Editor; dark: b
               </button>
               <span className="min-w-0 flex-1" />
               <button type="button" aria-label="Ask" className="welcome-go ctl" disabled={!text.trim()} onMouseDown={(e) => e.preventDefault()} onClick={() => start(text)}>
-                <ArrowUp size={14} weight="bold" />
+                <KeyReturn size={14} weight="bold" />
               </button>
             </div>
             {menu === "agent" && (
