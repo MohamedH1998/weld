@@ -7,7 +7,7 @@ import { ArrowUp, CaretDown, Folder, X } from "@phosphor-icons/react";
 import type { Editor } from "@weld/canvas/editor";
 import { boundsOf } from "@weld/canvas/geometry";
 import type { Box, Id } from "@weld/canvas/types";
-import { agentList, agentName, agentsKnown, boardDir, chosenAgent, chosenModel, defaultCwd, folderName, installed, modelsOf, remember, setBoardDir, settings, tilde, weld } from "./bridge";
+import { agentList, agentName, agentsFound, agentsKnown, enable, boardDir, chosenAgent, chosenModel, defaultCwd, folderName, installed, modelsOf, remember, setBoardDir, settings, tilde, weld } from "./bridge";
 import type { Item } from "./bridge";
 import { smiths, smithsVersion, subscribeSmiths } from "./smith";
 import { openings } from "./opening";
@@ -26,8 +26,10 @@ const TASKS: { label: string; ask: string }[] = [
   { label: "A live clock", ask: "Write a small script that shows the time, updating every second, and run it in a terminal here on the board so I can watch it." },
 ];
 
-/** With no agent on this Mac: the two Weld knows, each installed (and signed in to) in a terminal on the board. */
-function Setup({ editor }: { editor: Editor }) {
+/** With no agent switched on: the two Weld knows, each switched on with a press if it is on this Mac, or installed (and
+ *  signed in to) in a terminal on the board if it is not. */
+function Setup({ editor, onEnable }: { editor: Editor; onEnable: () => void }) {
+  const found = agentsFound();
   // (each pressed once: then the button goes to its terminal, which says how it went)
   const [term, setTerm] = useState<Partial<Record<Native, Id>>>({});
   return (
@@ -40,7 +42,9 @@ function Setup({ editor }: { editor: Editor }) {
           <div key={a} className="setup-row">
             <span className="setup-logo"><AgentLogo id={a} size={16} /></span>
             <span className="setup-name">{SETUP[a].name}<span className="setup-by">{SETUP[a].by}</span></span>
-            {term[a] && editor.store.doc.shapes[term[a]!] ? (
+            {found.some((x) => x.id === a && x.installed) ? (
+              <button type="button" className="setup-go ctl" onMouseDown={(e) => e.preventDefault()} onClick={() => (enable(a), onEnable())}>Enable</button>
+            ) : term[a] && editor.store.doc.shapes[term[a]!] ? (
               <button type="button" className="setup-go ctl" data-quiet onMouseDown={(e) => e.preventDefault()} onClick={() => goTo(editor, term[a]!)}>Installing…</button>
             ) : (
               <button type="button" className="setup-go ctl" onMouseDown={(e) => e.preventDefault()} onClick={() => setTerm((t) => ({ ...t, [a]: setUp(editor, a, "install") }))}>Install</button>
@@ -164,7 +168,7 @@ export const Bar = memo(function Bar({ editor, dark }: { editor: Editor; dark: b
           <div key={b.id} hidden><ThreadNode box={b} editor={editor} active={false} far={false} dark={dark} /></div>
         ))}
         {trouble && <div className="welcome-trouble">{trouble}</div>}
-        {!agents && known && !reading && onboarding && <Setup editor={editor} />}
+        {!agents && known && !reading && onboarding && <Setup editor={editor} onEnable={() => looked((n) => n + 1)} />}
         {empty && !reading && agents && (
           <div className="welcome-tasks">
             {TASKS.map((t) => (

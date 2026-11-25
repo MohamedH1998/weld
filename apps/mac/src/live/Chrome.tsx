@@ -95,6 +95,9 @@ export function TopBar({ editor, onPalette }: { editor: Editor; onPalette: () =>
           <MagnifyingGlass size={13} />
           <kbd>⌘K</kbd>
         </button>
+        <button type="button" aria-label="Settings" title="Settings (⌘,)" className="top-pill ctl" onMouseDown={(e) => e.preventDefault()} onClick={() => window.dispatchEvent(new Event("weld:settings"))}>
+          <GearSix size={14} />
+        </button>
       </div>
       {list && <Running editor={editor} threads={threads} stateOf={stateOf} close={() => setList(false)} />}
     </div>
@@ -195,7 +198,7 @@ export function Palette({ editor, close, leaving }: { editor: Editor; close: () 
       .map((f) => ({ key: f.id, icon: <FrameCorners size={15} />, name: f.text.trim(), sub: "area", run: () => editor.fit([f.id]) }));
     // the other boards, and a new one
     const others: Row[] = boards.filter((b) => !b.current).map((b) => ({ key: `board:${b.id}`, icon: <Stack size={15} />, name: b.name, sub: "board", state: b.waiting ? "ready" : b.working ? "working" : undefined, run: () => void openBoard(editor, b.id) }));
-    const all = [...things, ...places, ...others, ...acts, { key: "new:board", icon: <Plus size={15} />, name: "New board", sub: "", run: () => void newBoard(editor) }, { key: "settings", icon: <GearSix size={15} />, name: "Settings", sub: "⌘,", run: () => void window.dispatchEvent(new Event("weld:settings")) }];
+    const all = [...things, ...places, ...others, ...acts, { key: "new:board", icon: <Plus size={15} />, name: "New board", sub: "", run: () => void newBoard(editor) }, { key: "settings", icon: <GearSix size={15} />, name: "Settings", sub: "⌘,", run: () => void window.dispatchEvent(new Event("weld:settings")) }, { key: "settings:agents", icon: <GearSix size={15} />, name: "Agents", sub: "enable Claude, Codex and others", run: () => void window.dispatchEvent(new Event("weld:settings")) }, { key: "settings:t3", icon: <GearSix size={15} />, name: "Connect T3 Code", sub: "T3", run: () => void window.dispatchEvent(new Event("weld:settings")) }];
     const needle = q.trim().toLowerCase();
     return needle ? all.filter((r) => `${r.name} ${r.sub}`.toLowerCase().includes(needle)) : all;
     // eslint-disable-next-line react-hooks/exhaustive-deps

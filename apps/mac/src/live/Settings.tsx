@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, X } from "@phosphor-icons/react";
 import type { Editor } from "@weld/canvas/editor";
-import { agentList, weld } from "./bridge";
+import { agentsFound, disable, enable, enabled, weld } from "./bridge";
 import type { AgentInfo } from "./bridge";
 import { AgentLogo } from "./AgentLogo";
 import { installOther, OTHERS, SETUP, setUp } from "./setup";
@@ -79,11 +79,12 @@ function T3() {
 }
 
 export function Settings({ close, leaving, editor }: { close: () => void; leaving: boolean; editor: Editor }) {
-  const [agents, setAgents] = useState<AgentInfo[]>(() => agentList(true));
+  // (every agent as found on this Mac: each switched on, or not, by the person)
+  const [agents, setAgents] = useState<AgentInfo[]>(() => agentsFound(true));
   const [line, setLine] = useState("");
   const [error, setError] = useState("");
   const field = useRef<HTMLInputElement>(null);
-  const fresh = () => setAgents(agentList(true));
+  const fresh = () => setAgents(agentsFound(true));
   useEffect(() => {
     const esc = (e: KeyboardEvent) => e.key === "Escape" && (e.preventDefault(), e.stopPropagation(), close());
     window.addEventListener("keydown", esc, true);
@@ -127,8 +128,15 @@ export function Settings({ close, leaving, editor }: { close: () => void; leavin
                 <button type="button" className="settings-go settings-small ctl" onClick={() => (setUp(editor, a.id as Native, "install"), close())}>Install {SETUP[a.id as Native].name}</button>
               ) : !a.installed && OTHERS[a.id] ? (
                 <button type="button" className="settings-go settings-small ctl" onClick={() => (installOther(editor, a.id), close())}>Install</button>
+              ) : a.installed && !enabled(a.id) ? (
+                <button type="button" className="settings-go settings-small ctl" onClick={() => (enable(a.id), fresh())}>Enable</button>
+              ) : a.installed ? (
+                <>
+                  <span className="settings-state">On</span>
+                  <button type="button" className="settings-off ctl" onClick={() => (disable(a.id), fresh())}>Turn off</button>
+                </>
               ) : (
-                <span className="settings-state">{a.installed ? "On this Mac" : "Not installed"}</span>
+                <span className="settings-state">Not installed</span>
               )}
             </div>
           ))}

@@ -96,6 +96,8 @@ export interface Settings {
   recent?: string[];
   /** The first board has been laid out once. */
   started?: boolean;
+  /** The agents the person has switched on (an agent found on this Mac is offered, never used, until it is). */
+  enabled?: Agent[];
 }
 /** Something on the board a message points at, as it is now (see live/refs.ts). */
 export interface BoardRef {
@@ -243,8 +245,30 @@ export const home = () => weld.info.home;
 /** Where work starts when no folder was chosen for it: a new, empty folder of its own (never home, never whichever folder was used last). */
 /** Which agents are installed, asked of the app now and then (one installed after the window opened is found). */
 let agentsAt = 0, agentsWere: AgentInfo[] | null = null;
-/** Every agent a thread can run on, asked of the app now and then. */
+/** Whether the person has switched an agent on. Someone who used Weld before agents had to be (a choice of agent remembered)
+ *  keeps every one found, as before; a copy run by the checks has them all. */
+export function enabled(id: Agent): boolean {
+  if (settings.enabled) return settings.enabled.includes(id);
+  return !!settings.agent || !!weld.info.test;
+}
+/** Switch an agent on (one press, in Settings or on the first board), and ask new things of it. */
+export function enable(id: Agent) {
+  const was = settings.enabled ?? agentsFound().filter((a) => enabled(a.id)).map((a) => a.id);
+  remember({ enabled: [...new Set([...was, id])], agent: id });
+}
+export function disable(id: Agent) {
+  const was = settings.enabled ?? agentsFound().filter((a) => enabled(a.id)).map((a) => a.id);
+  remember({ enabled: was.filter((a) => a !== id) });
+}
+/** Every agent a thread can run on, as found on this Mac (installed: present, switched on or not). */
+export function agentsFound(fresh = false): AgentInfo[] {
+  return rawAgents(fresh);
+}
+/** Every agent a thread can run on: installed means present on this Mac and switched on by the person. */
 export function agentList(fresh = false): AgentInfo[] {
+  return rawAgents(fresh).map((a) => ({ ...a, installed: a.installed && (a.kind === "command" || enabled(a.id)) }));
+}
+function rawAgents(fresh = false): AgentInfo[] {
   if (fresh || !agentsWere || Date.now() - agentsAt > 4000) {
     agentsAt = Date.now();
     try {
