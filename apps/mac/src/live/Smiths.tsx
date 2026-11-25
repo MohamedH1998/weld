@@ -157,6 +157,12 @@ function Bubble({ id, editor }: { id: Id; editor: Editor }) {
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
   }, [running]);
+  // a page's smith, done: the page is shown afresh (its server may not reload it when the code changes)
+  const was = useRef(false);
+  useEffect(() => {
+    if (was.current && !running && f.page && !meta?.error && f.ids[0]) window.dispatchEvent(new CustomEvent("weld:reload", { detail: f.ids[0] }));
+    was.current = running;
+  }, [running, f.page, f.ids, meta?.error]);
   // (what it says changes its height, and so where it may stand: placed again each time)
   useLayoutEffect(() => ((area.current?.closest(".smiths") as (HTMLElement & { go?: () => void }) | null)?.go?.()));
   const labels = () =>
