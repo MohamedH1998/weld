@@ -9,7 +9,7 @@
 # Safety, in short:
 #   - nothing runs until the whole script has arrived (everything is in main(), called on the last line);
 #   - nothing is installed unless its SHA-256 is the one pinned here and its signature is intact;
-#   - all its work happens in a private temporary folder of yours that no other account can enter; the only thing it
+#   - all its work happens in a private folder of yours (in ~/Library) that no other account can enter; the only thing it
 #     ever does in Applications is one rename of Weld.app, done by the system in a single step (renameatx_np):
 #     RENAME_SWAP to exchange the old Weld for the new one (so there is never a moment without a Weld), or, for a first
 #     install, RENAME_EXCL, which fails rather than touch anything that has appeared there;
@@ -53,12 +53,18 @@ main() {
   mkdir -p "$dest"
   target="$dest/Weld.app"
 
-  # this run's own folder, inside macOS's temporary folder for this account (asked of the system, not taken from
-  # TMPDIR), which must be owned by this account and closed to everyone else; it must be on the same disk as
-  # Applications, so the swap is a single rename
-  base=$(getconf DARWIN_USER_TEMP_DIR 2>/dev/null) || fail "couldn't find this account's temporary folder."
-  [ -d "$base" ] && [ ! -L "${base%/}" ] && [ -O "$base" ] && [ "$(stat -f '%Lp' "$base")" = 700 ] || fail "this account's temporary folder ($base) isn't private to it, so the installer won't work in it."
-  tmp=$(mktemp -d "${base%/}/weld-install.XXXXXX")
+  # this run's own folder, inside a folder of the installer's own in this account's Library: kept (not a temporary
+  # folder the system clears), owned by this account and closed to everyone else, with no access rules (ACLs) that
+  # would let anyone else in; it must be on the same disk as Applications, so the swap is a single rename
+  home_dir="$HOME/Library/Application Support/Weld Installer"
+  mkdir -p -m 700 "$home_dir" 2>/dev/null || fail "couldn't make $home_dir."
+  private "$home_dir" || fail "$home_dir isn't private to this account, so the installer won't work in it."
+  # (anything an earlier run had to keep is said, and left for the person)
+  for left in "$home_dir"/weld-install.*; do
+    [ -e "$left" ] && say "weld: an earlier install kept something at $left. Look inside before deleting it." >&2
+  done
+  tmp=$(mktemp -d "$home_dir/weld-install.XXXXXX")
+  private "$tmp" || fail "couldn't make a private folder in $home_dir."
   [ "$(stat -f %d "$tmp")" = "$(stat -f %d "$dest")" ] || fail "$dest isn't on the same disk as this account's temporary folder, which the installer needs to swap Weld in safely."
 
   # one install at a time into this folder (mkdir: only one run can make it; if it is there, this run stops)
@@ -110,12 +116,17 @@ main() {
 cleanup() {
   if [ -n "$tmp" ] && [ -d "$tmp" ]; then
     if occupied "$tmp/new/Weld.app" && ! known "$tmp/new/Weld.app"; then
-      say "weld: kept $tmp, which holds something that came out of $dest unexpectedly. Look inside before deleting it." >&2
+      say "weld: kept $tmp, which holds something that came out of $dest unexpectedly. Look inside before deleting it (the next run will remind you)." >&2
     else
       rm -rf "$tmp"
     fi
   fi
   [ -z "$lock" ] || rmdir "$lock" 2>/dev/null || true
+}
+
+# a folder only this account can use: a real folder (not a link), owned by it, mode 700, and with no ACL entries
+private() {
+  [ -d "$1" ] && [ ! -L "$1" ] && [ -O "$1" ] && [ "$(stat -f '%Lp' "$1")" = 700 ] && [ -z "$(ls -led "$1" | sed 1d)" ]
 }
 
 # whether something in this run's folder is known: this run's own new copy or the very Weld found at the start (by
