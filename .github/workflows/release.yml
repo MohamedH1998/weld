@@ -11,12 +11,18 @@ permissions:
 
 jobs:
   release:
+    # a tag only, never a branch named like one: what is signed is the commit the tag names
+    if: github.ref_type == 'tag'
+    # (the signing secrets can be kept in this environment, and it limited to v* tags, in the repository's settings)
+    environment: release
     runs-on: macos-15
     defaults:
       run:
         working-directory: apps/mac
     steps:
       - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v5
         with:
@@ -27,6 +33,7 @@ jobs:
       - name: The tag matches the version
         run: |
           version="$(node -p "require('./package.json').version")"
+          test "$GITHUB_REF_TYPE" = tag || { echo "Run this for a tag, not a branch"; exit 1; }
           test "$GITHUB_REF_NAME" = "v$version" || { echo "Tag $GITHUB_REF_NAME does not match package.json version $version"; exit 1; }
 
       - run: pnpm typecheck
@@ -80,4 +87,4 @@ jobs:
       - name: Draft the release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" out/release/*.dmg out/release/*.zip out/release/SHA256SUMS.txt --draft --generate-notes --title "Weld ${GITHUB_REF_NAME#v}"
+        run: gh release create "$GITHUB_REF_NAME" out/release/*.dmg out/release/*.zip out/release/SHA256SUMS.txt --verify-tag --draft --generate-notes --title "Weld ${GITHUB_REF_NAME#v}"

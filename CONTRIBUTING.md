@@ -81,7 +81,8 @@ gh release create v<version> apps/mac/out/release/* --title "Weld <version>"
 ```
 
 `.github/workflows/release.yml` can build a release in CI instead, run by hand for a tag (then pin its zip, not a local one); the tag must match the
-version in `apps/mac/package.json`. It builds the app, signs it if set up, checks the app copied out of the DMG, and drafts a
+version in `apps/mac/package.json`, and it refuses to run for a branch. It runs in the `release` environment: keep the signing secrets there,
+and limit the environment to `v*` tags in the repository's settings, so only a pushed tag can be signed. It builds the app, signs it if set up, checks the app copied out of the DMG, and drafts a
 GitHub release with the DMG, a zip and their checksums. Publish the draft when it looks right.
 
 Signing needs an Apple Developer account. Add these repository secrets (all of them; with none, releases are ad-hoc
