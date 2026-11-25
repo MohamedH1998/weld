@@ -16,7 +16,7 @@ import { doingNow, subOf, ThreadNode } from "./ThreadNode";
 import { AgentLogo } from "./AgentLogo";
 import { ensure, useThreads } from "./threads";
 import { drawingKeys, resolve } from "./refs";
-import { SETUP, setUp } from "./setup";
+import { isSetup, SETUP, setUp } from "./setup";
 import type { Native } from "./setup";
 
 // what a new board offers to make, each showing what the board is for
@@ -149,6 +149,8 @@ export const Bar = memo(function Bar({ editor, dark }: { editor: Editor; dark: b
     .filter(({ b, t }) => openings.has(b.id) || (t && (t.meta.status === "running" || t.meta.asking || t.meta.unread || t.meta.error)));
   const empty = store.doc.order.length === 0 && away.length === 0 && smiths.size === 0 && store.tool === "select" && !store.busy;
   const open = reading ? awayBox(editor, reading) : undefined;
+  // (with no agent yet: the card offering them, on a board that is empty but for the terminals it opened; elsewhere, Settings)
+  const onboarding = empty || (store.doc.order.length > 0 && store.doc.order.every((id) => isSetup(store.doc.shapes[id] as Box | undefined)) && away.length === 0 && smiths.size === 0);
 
   return (
     <div className="ask-dock pointer-events-none absolute inset-x-0 bottom-[76px] z-40 flex justify-center px-4">
@@ -158,7 +160,7 @@ export const Bar = memo(function Bar({ editor, dark }: { editor: Editor; dark: b
           <div key={b.id} hidden><ThreadNode box={b} editor={editor} active={false} far={false} dark={dark} /></div>
         ))}
         {trouble && <div className="welcome-trouble">{trouble}</div>}
-        {!agents && !reading && (empty || store.doc.order.every((id) => store.doc.shapes[id]?.kind === "terminal")) && <Setup editor={editor} />}
+        {!agents && !reading && onboarding && <Setup editor={editor} />}
         {empty && !reading && agents && (
           <div className="welcome-tasks">
             {TASKS.map((t) => (
@@ -186,7 +188,7 @@ export const Bar = memo(function Bar({ editor, dark }: { editor: Editor; dark: b
               ref={area}
               rows={1}
               value={text}
-              placeholder={agents ? `Ask ${agent} to make something…` : "Add an agent above to start"}
+              placeholder={agents ? `Ask ${agent} to make something…` : onboarding ? "Add an agent above to start" : "Add an agent in Settings (⌘,) to start"}
               disabled={!agents}
               aria-label="Ask an agent"
               onChange={(e) => setText(e.target.value)}
@@ -306,6 +308,8 @@ function pointAt(editor: Editor): { key: string; label: string } | null {
   const doc = editor.store.doc, sel = [...editor.store.sel];
   if (!sel.length) return null;
   const one = doc.shapes[sel[0]!] as Box | undefined;
+  // (a terminal Weld opened to install or sign in to an agent holds sign-in links and codes: it never goes with a question by itself)
+  if (sel.length === 1 && isSetup(one)) return null;
   if (sel.length === 1 && one && (one.kind === "browser" || one.kind === "terminal" || one.kind === "thread")) {
     if (one.kind !== "browser") return { key: `live:${one.id}`, label: one.text || (one.kind === "terminal" ? "Terminal" : "Thread") };
     const url = one.live?.url ?? "";

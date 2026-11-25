@@ -22,7 +22,7 @@ export const OTHERS: Record<string, { name: string; install: string }> = {
 export function installOther(editor: Editor, id: string): Id | null {
   const o = OTHERS[id];
   if (!o) return null;
-  return unpicked(editor, addLive(editor, "terminal", { cwd: weld.info.home, run: o.install, cmd: o.install }, `Installing ${o.name}`));
+  return unpicked(editor, addLive(editor, "terminal", { cwd: weld.info.home, run: o.install, cmd: o.install, setup: true }, `Installing ${o.name}`));
 }
 
 /** Whether an agent's failure is its asking to be signed in to. */
@@ -34,12 +34,15 @@ export const notInstalled = (text: string | undefined) => !!text && /is not inst
 /** A terminal on the board running the install or the sign-in: beside the thread that needed it, or in view. */
 export function setUp(editor: Editor, agent: Native, what: "install" | "signIn", from?: Id | null): Id {
   const s = SETUP[agent];
-  const live = { cwd: weld.info.home, run: s[what], cmd: s[what] };
+  const live = { cwd: weld.info.home, run: s[what], cmd: s[what], setup: true };
   const title = what === "install" ? `Installing ${s.name}` : `Signing in to ${s.name}`;
   return unpicked(editor, from ? openBeside(editor, from, "terminal", live, title) : addLive(editor, "terminal", live, title));
 }
-/** A setup terminal is never left selected: what is selected goes with the next question, and its output holds sign-in links and codes. */
+/** A setup terminal is not left selected (and, marked setup, never goes with a question even when it is selected again). */
 function unpicked(editor: Editor, id: Id): Id {
   if (editor.store.sel.has(id)) (editor.store.select([]), editor.store.emit());
   return id;
 }
+
+/** Whether a shape is one of those terminals. */
+export const isSetup = (b: { kind?: string; live?: { setup?: boolean } } | undefined) => b?.kind === "terminal" && !!b.live?.setup;

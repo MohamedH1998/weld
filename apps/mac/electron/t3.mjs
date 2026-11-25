@@ -2,7 +2,7 @@
 // followed and answered from T3 Code (and so from its phone app). T3 Code reads that file again whenever it changes, so
 // no restart is needed. Only Weld's own entry is ever written or removed, and only while it is still the one Weld made:
 // an agent the person set up under the same name is left alone, and everything else in the file is kept as it is.
-import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -11,11 +11,19 @@ const ID = "weld";
 /** @param {{ dir: string, bin: () => string }} o  T3 Code's settings folder, and the `weld` command it should run. */
 export function makeT3(o) {
   // (through a link to the real file, so a settings file kept elsewhere, in dotfiles say, stays linked)
+  // (a link whose target is gone is left as it is, never replaced by a file of Weld's)
   const file = () => {
     const f = path.join(o.dir, "settings.json");
+    let link = false;
+    try {
+      link = lstatSync(f).isSymbolicLink();
+    } catch {
+      return f;
+    }
     try {
       return realpathSync(f);
     } catch {
+      if (link) throw new Error("T3 Code's settings file is a link to a file that isn't there");
       return f;
     }
   };
@@ -29,7 +37,7 @@ export function makeT3(o) {
     try {
       s = JSON.parse(text);
     } catch {
-      throw new Error("T3 Code's settings file has something Weld can't read (comments, perhaps). Add Weld in T3 Code instead");
+      throw new Error("T3 Code's settings file has something Weld can't read (comments, perhaps)");
     }
     if (!s || typeof s !== "object" || Array.isArray(s)) throw new Error("T3 Code's settings are not in a form Weld knows");
     return s;
@@ -58,8 +66,10 @@ export function makeT3(o) {
     enabled: true,
     config: { source: "local", commandPath: path.join(o.bin(), "weld"), commandArgs: ["acp"] },
   });
-  /** Whether an entry is the one Weld makes (for any copy of Weld: the command is Weld's own `weld acp`). */
-  const ours = (w) => !!w && w.driver === "acpRegistry" && w.config?.source === "local" && /(^|\/)weld$/.test(String(w.config?.commandPath ?? "")) && JSON.stringify(w.config?.commandArgs) === '["acp"]';
+  /** Whether an entry is the one this Weld makes: its own `weld` command, exactly, with `acp`. */
+  const ours = (w) => !!w && w.driver === "acpRegistry" && w.config?.source === "local" && w.config?.commandPath === entry().config.commandPath && JSON.stringify(w.config?.commandArgs) === '["acp"]';
+  /** Added by hand instead, when Weld can't write the file: T3 Code's own words for it. */
+  const byHand = () => ` Add Weld in T3 Code yourself: Settings → Providers → Local ACP command, with the executable ${entry().config.commandPath} and the argument acp.`;
   const change = (fn) => {
     try {
       const was = raw(), s = parse(was);
@@ -68,7 +78,8 @@ export function makeT3(o) {
       write(was, s);
       return { ok: true };
     } catch (e) {
-      return { error: String(e?.message || e) };
+      const m = String(e?.message || e).replace(/\.?$/, ".");
+      return { error: /Try again/.test(m) ? m : `${m}${byHand()}` };
     }
   };
   return {
@@ -76,7 +87,7 @@ export function makeT3(o) {
       if (!installed()) return { installed: false, connected: false };
       try {
         const w = parse(raw()).providerInstances?.[ID];
-        return { installed: true, connected: ours(w) && w.enabled !== false && w.config.commandPath === entry().config.commandPath };
+        return { installed: true, connected: ours(w) && w.enabled !== false };
       } catch {
         return { installed: true, connected: false };
       }
@@ -84,7 +95,7 @@ export function makeT3(o) {
     connect: () =>
       change((s) => {
         const w = s.providerInstances?.[ID];
-        if (w && !ours(w)) return { error: "T3 Code already has an agent called “weld” that Weld didn't add. Rename or remove it in T3 Code, then connect" };
+        if (w && !ours(w)) return { error: "T3 Code already has an agent called “weld” that this Weld didn't add. Rename or remove it in T3 Code, then connect." };
         s.providerInstances = { ...(s.providerInstances ?? {}), [ID]: entry() };
       }),
     disconnect: () =>

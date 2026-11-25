@@ -37,6 +37,8 @@ export interface Live {
   by?: Id;
   /** The command an agent started this terminal to run. */
   cmd?: string;
+  /** A terminal Weld opened to install or sign in to an agent: what it shows (sign-in links, codes) never goes with a question by itself. */
+  setup?: boolean;
   /** A terminal showing a thread's background command: removing it hides the output, it does not stop the command. */
   svc?: boolean;
   /** What a thread has been pointed at (see live/refs.ts), by key. */
