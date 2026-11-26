@@ -17,12 +17,14 @@ const goodId = (v: unknown): v is string => typeof v === "string" && /^[A-Za-z0-
 const oneOf = <T extends string>(v: unknown, all: readonly T[], fallback: T): T => (all.includes(v as T) ? (v as T) : fallback);
 const rot = (v: unknown): { rot?: number } => (num(v) && normAngle(v) !== 0 ? { rot: normAngle(v) } : {});
 /** The optional fields: a line style where one applies, and a group. */
-const extras = (v: Record<string, unknown>, lined: boolean): { line?: "dashed" | "dotted"; group?: string; locked?: true; away?: true; wait?: number } => ({
+const extras = (v: Record<string, unknown>, lined: boolean): { line?: "dashed" | "dotted"; group?: string; locked?: true; away?: true; wait?: number; edited?: true } => ({
   ...(num(v.wait) && v.wait > 0 && v.wait <= 20000 ? { wait: v.wait } : {}),
   ...(v.away === true ? { away: true as const } : {}),
   ...(v.locked === true ? { locked: true as const } : {}),
   ...(lined && (v.line === "dashed" || v.line === "dotted") ? { line: v.line } : {}),
   ...(goodId(v.group) ? { group: v.group } : {}),
+  // (made or changed by the person: an agent leaves it as they left it, unless asked)
+  ...(v.edited === true ? { edited: true as const } : {}),
 });
 const measure = (v: Record<string, unknown>, k: "size" | "head" | "pad" | "track", lo: number, hi: number) => (num(v[k]) && (v[k] as number) >= lo && (v[k] as number) <= hi ? { [k]: v[k] as number } : {});
 const SHADES = ["n50", "n100", "n200", "n300", "n400", "n500", "n600", "n700", "n900", "accent", "paper", "none"] as const;
@@ -67,6 +69,8 @@ const live = (v: unknown): { live?: Live } => {
   if (Array.isArray(v.sees)) out.sees = v.sees.filter((k): k is string => typeof k === "string" && k.length <= (k.startsWith("work:") ? 20000 : 200)).slice(0, 200);
   if (num(v.hue) && Number.isInteger(v.hue) && v.hue >= 0 && v.hue < 64) out.hue = v.hue;
   if (num(v.tall) && v.tall > 0 && v.tall < 1e5) out.tall = v.tall;
+  // (a time in ms: past the board's own limit for a place, so checked on its own)
+  if (typeof v.closed === "number" && Number.isFinite(v.closed) && v.closed > 0 && v.closed < 1e14) out.closed = Math.round(v.closed);
   return Object.keys(out).length ? { live: out } : {};
 };
 
