@@ -35,6 +35,9 @@ process.stdin.on("data", (d) => {
     spent = Math.round((spent + cost) * 100) / 100;
     ran = Math.round((ran + cost) * 100) / 100;
     fs.writeFileSync(file, JSON.stringify({ n, spent: saveOnExit ? saved : spent }));
+    // ("child:<file>": it leaves a command running in its own group, with its output elsewhere, and writes its pid there)
+    const child = /child:(\S+?)["\s]/.exec(JSON.stringify(m.message?.content ?? "") + " ");
+    if (child) { const c = process.getBuiltinModule("node:child_process").spawn("/bin/sleep", ["300"], { stdio: "ignore" }); fs.writeFileSync(child[1], String(c.pid)); }
     out({ type: "system", subtype: "init", session_id: sid, model: "fake", tools: [], slash_commands: [] });
     out({ type: "assistant", session_id: sid, message: { id: `m${n}`, role: "assistant", content: [{ type: "text", text: `ok ${n}` }] } });
     out({ type: "result", subtype: "success", session_id: sid, is_error: false, duration_ms: 10, num_turns: 1, result: `ok ${n}`, total_cost_usd: runScoped ? ran : spent });

@@ -52,4 +52,17 @@ export default async ({ app, page }) => {
   // a thread branched from it starts with no cost of its own
   const copy = await E(async (T) => { const id = `fork${Date.now().toString(36)}`; const c = await window.weld.thread.fork(T, id); return c.meta.cost ?? null; }, T);
   check("a thread branched from it starts with no cost of its own", copy === null, copy);
+
+  // a command it left running in its group (a server, say) ends with it when it is let go, not left after it
+  const pidFile = `/tmp/weld-fake-child-${process.pid}`;
+  await E(([T, f]) => window.weld.thread.send(T, { text: `start a server child:${f}` }), [T, pidFile]);
+  await wait(1500);
+  const pid = Number((await import("node:fs")).readFileSync(pidFile, "utf8"));
+  const alive = (p) => { try { process.kill(p, 0); return true; } catch { return false; } };
+  check("(the command it left running is running)", alive(pid), pid);
+  await E((T) => window.weld.thread.set(T, { mode: "full" }), T);
+  await E((T) => window.weld.thread.send(T, { text: "and on" }), T);
+  for (let t = 0; t < 40 && alive(pid); t++) await wait(250);
+  check("let go (its mode changed), what it left running in its group ends with it", !alive(pid), pid);
+  try { process.kill(pid, "SIGKILL"); } catch {}
 };

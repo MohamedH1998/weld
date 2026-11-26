@@ -957,6 +957,9 @@ export class Threads {
     this.live.delete(id);
     // (its ending, waited for by a run of the same thread that would resume its session; ended by now, a quit's)
     if (!lp.dead) {
+      // (once it has finished, whatever it started that is still in its group (a server, a build) is ended with it, as
+      // when it is let go at once)
+      lp.proc.once("exit", () => (signal(lp.proc, "SIGTERM"), setTimeout(() => signal(lp.proc, "SIGKILL"), 2000)));
       const ended = new Promise((done) => (lp.proc.exitCode !== null || lp.proc.signalCode !== null ? done() : lp.proc.once("exit", () => done())));
       const bounded = Promise.race([ended, new Promise((r) => setTimeout(r, 6000))]);
       this.leaving.set(id, bounded);
@@ -994,7 +997,7 @@ export class Threads {
     const was = this.live.get(id);
     if (was && !was.dead && was.key !== keyOf(bin, cwd, this.claudeArgs(t))) this.drop(id);
     const leaving = this.leaving.get(id);
-    if (leaving) return void leaving.then(() => { const now = this.leaving.get(id); if (!now || now === leaving) this.warm(id); });
+    if (leaving) return void leaving.then(() => { const now = this.leaving.get(id); if (!this.quitting && !this.closed && (!now || now === leaving)) this.warm(id); });
     try {
       const lp = this.kept(id, bin, this.claudeArgs(t), cwd, this.envFor(id));
       if (!lp.idle) this.rest(id, lp, 3 * 60 * 1000);
@@ -1106,7 +1109,8 @@ export class Threads {
     setTimeout(() => there() && signal(run.proc, "SIGKILL"), 4000);
   }
   shutdown() {
-    // nothing waiting to start may start now
+    // nothing waiting to start may start now (a run waiting for another to end included)
+    this.quitting = true;
     this.starting.clear();
     for (const [id, run] of this.running) {
       run.stopped = true;
