@@ -91,7 +91,9 @@ async function prompt(id, p) {
   if (slow) for (let i = 0; i < Number(slow) * 10; i++) { await wait(100); if (i % 50 === 0) update(sid, { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "." } }); }
   const words = grab("say") ?? "ok";
   // (underscores are spaces, and a written \n a line break: one word on the command line can say anything)
-  for (const chunk of words.replace(/_/g, " ").replace(/\\n/g, "\n").match(/[\s\S]{1,4}/g) ?? []) (update(sid, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: chunk } }), await wait(10));
+  // (pace:<ms> between chunks: slow enough to watch an answer arrive)
+  const pace = Number(grab("pace") ?? 10);
+  for (const chunk of words.replace(/_/g, " ").replace(/\\n/g, "\n").match(/[\s\S]{1,4}/g) ?? []) (update(sid, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: chunk } }), await wait(pace));
   out({ jsonrpc: "2.0", id, result: { stopReason: "end_turn" } });
   // a child that ignores TERM (same group), and one in a detached group of its own: both try to write 3 s later
   const stubborn = grab("stubborn"), loose = grab("detached");

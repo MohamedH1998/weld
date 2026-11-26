@@ -179,13 +179,13 @@
 .prose-live code { font-family: var(--live-mono); font-size: 11.5px; background: var(--live-tint); border-radius: 4px; padding: 1px 4px; }
 .prose-live pre { background: var(--live-tint); border-radius: 8px; padding: 10px 12px; overflow-x: auto; line-height: 17px; }
 .prose-live pre code { background: none; padding: 0; }
-/* a block of code, with its copy button in the top corner (faint until the block is pointed at) */
-.prose-live .code-block { position: relative; margin: 0 0 10px; }
-.prose-live .code-block > pre { margin: 0; padding-right: 36px; }
-.code-copy { position: absolute; top: 6px; right: 6px; width: 24px; height: 24px; display: grid; place-items: center; border-radius: 6px; color: var(--live-sub); background: var(--live-paper); box-shadow: 0 0 0 1px var(--live-line); opacity: 0.55; transition: opacity 120ms ease, color 120ms ease; }
-.code-block:hover .code-copy, .code-copy:focus-visible { opacity: 1; }
-.code-copy:hover { color: var(--live-ink); }
-.code-copy[data-done] { opacity: 1; color: var(--live-accent); }
+/* a block of code, its copy button in a column of its own beside it (wide lines scroll under nothing) */
+.prose-live .code-block { position: relative; display: flex; align-items: flex-start; margin: 0 0 10px; background: var(--live-tint); border-radius: 8px; }
+.prose-live .code-block > pre { flex: 1; min-width: 0; margin: 0; background: none; }
+.code-copy { flex: none; margin: 6px 6px 0 0; width: 24px; height: 24px; display: grid; place-items: center; border-radius: 6px; color: var(--live-sub); background: var(--live-paper); box-shadow: 0 0 0 1px var(--live-line); transition: color 120ms ease; }
+.code-copy:hover, .code-copy:focus-visible { color: var(--live-ink); }
+.code-copy[data-said="copied"] { color: var(--live-accent); }
+.code-copy[data-said="failed"] { color: #dc2626; }
 .prose-live blockquote { border-left: 2px solid var(--live-line); padding-left: 10px; color: var(--live-sub); }
 .prose-live hr { border: 0; border-top: 1px solid var(--live-line); margin: 12px 0; }
 .prose-live table { border-collapse: collapse; font-size: 12px; display: block; overflow-x: auto; max-width: 100%; }
