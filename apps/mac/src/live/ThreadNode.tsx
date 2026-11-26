@@ -362,19 +362,21 @@ const Transcript = memo(function Transcript({ items, meta, running, active, edit
 /** What was said, cut where one block ends and the next begins, so a piece still being written only re-reads its own last block. */
 function partsOf(text: string): string[] {
   const out: string[] = [];
-  // (inside a fenced block until a fence of the same mark, at least as long, closes it: one inside it is its words)
-  let cur: string[] = [], fence = "", blank = false;
+  // (inside a fenced block until a fence of the same mark, at least as long, closes it: one inside it is its words; a
+  // closing fence stands no more than three spaces further in than its opening one, as in a list item: one indented
+  // further is an example inside the block)
+  let cur: string[] = [], fence = "", at = 0, blank = false;
   // (lines ended either way, \n or \r\n, are the same lines)
   for (const line of text.split(/\r?\n/)) {
     // (a fence may stand indented, as one inside a list item does)
-    const m = /^\s*(`{3,}|~{3,})(.*)$/.exec(line);
-    const opens = !fence && !!m, closes = !!fence && !!m && m[1]![0] === fence[0] && m[1]!.length >= fence.length && !m[2]!.trim();
+    const m = /^(\s*)(`{3,}|~{3,})(.*)$/.exec(line);
+    const opens = !fence && !!m, closes = !!fence && !!m && m[2]![0] === fence[0] && m[2]!.length >= fence.length && !m[3]!.trim() && m[1]!.length - at <= 3;
     // a new block starts after an empty line, at a line that cannot belong to what came before (not indented, not a list or quote going on)
     if (!fence && blank && line.trim() && !/^(\s|[-*+>|]|\d+[.)])/.test(line) && cur.length) {
       out.push(cur.join("\n"));
       cur = [];
     }
-    if (opens) fence = m![1]!;
+    if (opens) (fence = m![2]!), (at = m![1]!.length);
     else if (closes) fence = "";
     blank = !fence && !line.trim();
     cur.push(line);
@@ -396,13 +398,15 @@ const Said = memo(function Said({ item, open }: { item: Item; open: (url: string
 const CodeSource = createContext<{ text: string; arriving: boolean }>({ text: "", arriving: false });
 /** (one kind of thing for a block of code, made once: made again with each word that arrives, it would be a new block
  *  each time, and lose its focus, its scroll and its "Copied") */
-const PreBlock = ({ children, node }: { children?: React.ReactNode; node?: { position?: { start: { offset?: number }; end: { offset?: number } } } }) => {
+const PreBlock = ({ children, node }: { children?: React.ReactNode; node?: { position?: { start: { offset?: number; column?: number }; end: { offset?: number } } } }) => {
   const { text, arriving } = useContext(CodeSource);
   const at = node?.position, src = at && at.start.offset !== undefined && at.end.offset !== undefined ? text.slice(at.start.offset, at.end.offset) : "";
+  // (how far in its opening fence stands: a closing one stands no more than three spaces further in)
+  const indent = Math.max(0, (at?.start.column ?? 1) - 1);
   // (closed: a line after its first of the same fence, at least as long, and nothing else; or an indented block, which
   // has no fence to wait for)
   const open = /^\s*(`{3,}|~{3,})/.exec(src), fence = open?.[1];
-  const closed = !fence || src.split(/\r?\n/).slice(1).some((l) => { const m = /^\s*(`{3,}|~{3,})\s*$/.exec(l); return !!m && m[1]![0] === fence[0] && m[1]!.length >= fence.length; });
+  const closed = !fence || src.split(/\r?\n/).slice(1).some((l) => { const m = /^(\s*)(`{3,}|~{3,})\s*$/.exec(l); return !!m && m[2]![0] === fence[0] && m[2]!.length >= fence.length && m[1]!.length - indent <= 3; });
   return <CodeBlock ready={!arriving || closed}>{children}</CodeBlock>;
 };
 const Part = memo(function Part({ text, open, arriving }: { text: string; open: (url: string) => void; arriving?: boolean }) {

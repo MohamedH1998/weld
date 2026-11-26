@@ -129,5 +129,17 @@ export default async ({ page, shot }) => {
   await wait(500);
   const two = await E(() => [...document.querySelector(".ask-reader").querySelectorAll(".code-block pre")].map((p) => p.textContent));
   check("a block in a list and one after it are both whole", two.length >= 2 && two.some((t) => /npm start/.test(t)) && two.some((t) => /Starting/.test(t) && /Ready/.test(t)), two);
+
+  // a README in a block, with an indented example in a list inside it: one block, the example's fence its words
+  await page.keyboard.press("Escape");
+  const readme = "The_README:\\n\\n```markdown\\n1._To_run:\\n\\n____```sh\\n____npm_start\\n____```\\n\\nThen_open_the_browser.\\n```\\n\\nDone_readme.";
+  await page.click(".ask-bar textarea");
+  await page.keyboard.insertText(`say:${readme}`);
+  await page.keyboard.press("Enter");
+  for (let t = 0; t < 60 && !(await E(() => [...document.querySelectorAll(".ask-capsule")].some((c) => /The_README/.test(c.textContent) && c.getAttribute("data-state") === "done"))); t++) await wait(250);
+  await page.locator(".ask-capsule", { hasText: "The_README" }).click();
+  await wait(500);
+  const rd = await E(() => { const last = [...document.querySelector(".ask-reader").querySelectorAll(".prose-live")]; const blocks = last.flatMap((x) => [...x.querySelectorAll(".code-block pre")]).map((p) => p.textContent); return blocks; });
+  check("a block holding an indented example (in a list) is one block, the example's fences its words", rd.length === 1 && /npm start/.test(rd[0] ?? "") && /Then open the browser/.test(rd[0] ?? ""), rd);
 };
 
