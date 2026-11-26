@@ -816,7 +816,7 @@ export function draw(editor: Editor, thread: Id, ops: DrawOps): { made: Record<s
           // (all of it: a drawing part of which is someone else's is not redrawn over them)
           else if (!old.every((x) => mine.has(x)) || old.some((x) => isLive(doc.shapes[x]!))) problems.push(`not done: story: ${sp!.replace} ${OUT}`);
           // (held, nothing of the request is done: a legend drawn beside a redraw that did not happen would be one too many)
-          else if (guard && (old.some(heldBy) || (doc.scenes?.[g]?.moments ?? []).some((m) => m.shapes.some((x) => theirs(x)))))
+          else if (guard && (old.some(heldBy) || (doc.scenes?.[g]?.moments ?? []).some((m) => m.shapes.some((x) => theirs(x) && !liveEnded(x)))))
             return { made: {}, changed: 0, removed: 0, problems: [`not done (any of it): story: the person has changed ${sp!.replace} since you drew it (in one of its moments, or a line of theirs to it), so it was not drawn over. Read it with weld look and keep their changes (use "change" on the parts you need), or redraw it over them only if the person asked, with "force": true.`], held: 1 };
           else {
             const ob = union(old.map((x) => bounds(doc, doc.shapes[x]!)));

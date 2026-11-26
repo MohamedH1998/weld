@@ -136,6 +136,11 @@ export default async ({ app, page, out, shot }) => {
   await E((g) => { const e = window.__editor, st = e.store; e.showMoment(g, 1); const id = st.doc.order.find((x) => st.doc.shapes[x]?.group === g && st.doc.shapes[x].kind !== "arrow" && "x" in st.doc.shapes[x]); const s = st.doc.shapes[id]; st.run(() => st.patch(id, { x: s.x + 40 })); st.emit(); e.showMoment(g, 0); }, gB);
   check("a change in another moment is kept in that moment, marked as the person's", await E((g) => { const d = window.__editor.store.doc; return d.scenes[g].at === 0 && d.scenes[g].moments[1].shapes.some((x) => x.edited); }, gB));
   void part;
+  // a line of the person's from a part to the conversation, kept in one of its moments, does not hold a redraw
+  const g4 = /= #(\w+)/.exec(draw({ story }))?.[1];
+  await E(([g, t]) => { const st = window.__editor.store, d = st.doc, sc = d.scenes[g], p = sc.moments[1].shapes.find((x) => x.kind !== "arrow" && "x" in x); const w = { id: "mline", kind: "arrow", group: g, a: { x: p.x, y: p.y, bind: { id: p.id, nx: 1, ny: 0.5 } }, b: { x: p.x + 300, y: p.y, bind: { id: t, nx: 0, ny: 0.5 } }, text: "", tone: "ink", edited: true }; const moments = sc.moments.map((m, i) => (i === 1 ? { ...m, shapes: [...m.shapes, w] } : m)); st.quiet(() => st.setDoc({ ...d, scenes: { ...d.scenes, [g]: { ...sc, moments } } })); }, [g4, T]);
+  const re4 = draw({ story: { ...story, replace: `#${g4}` } });
+  check("a line of the person's to the conversation, kept in a moment, does not hold a redraw", !/not done/.test(re4), re4);
 
   // and after the app is opened again: the person's change is still theirs, the agent's work still the agent's
   await wait(1500);
