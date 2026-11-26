@@ -1186,15 +1186,18 @@ export function render(
       const W = ctx.canvas.width, H = ctx.canvas.height;
       const x0 = Math.max(0, Math.floor(Math.min(...xs))), y0 = Math.max(0, Math.floor(Math.min(...ys))), x1 = Math.min(W, Math.ceil(Math.max(...xs))), y1 = Math.min(H, Math.ceil(Math.max(...ys)));
       if (x1 <= x0 || y1 <= y0) return;
+      // (the sheet is the patch's own size, its corner at the patch's: it grows to the largest patch asked of it, never
+      // to the window's)
+      const pw = x1 - x0, ph = y1 - y0;
       const c = (ringSheet ??= document.createElement("canvas")), k = c.getContext("2d")!;
-      if (c.width < W || c.height < H) (c.width = W), (c.height = H);
+      if (c.width < pw || c.height < ph) (c.width = Math.max(c.width, pw)), (c.height = Math.max(c.height, ph));
       k.setTransform(1, 0, 0, 1, 0, 0);
-      k.clearRect(x0, y0, x1 - x0, y1 - y0);
+      k.clearRect(0, 0, pw, ph);
       k.save();
       k.beginPath();
-      k.rect(x0, y0, x1 - x0, y1 - y0);
+      k.rect(0, 0, pw, ph);
       k.clip();
-      k.setTransform(m);
+      k.setTransform(m.a, m.b, m.c, m.d, m.e - x0, m.f - y0);
       own(k, r, b);
       k.lineJoin = "round";
       k.strokeStyle = color;
@@ -1208,7 +1211,7 @@ export function render(
       k.restore();
       ctx.save();
       ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.drawImage(c, x0, y0, x1 - x0, y1 - y0, x0, y0, x1 - x0, y1 - y0);
+      ctx.drawImage(c, 0, 0, pw, ph, x0, y0, pw, ph);
       ctx.restore();
     };
     ctx.lineWidth = width;

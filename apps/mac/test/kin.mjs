@@ -114,7 +114,7 @@ export default async ({ page, shot }) => {
     st.emit();
     return { px, n, screen: c.width * c.height, seen: [...(e.overlay.kin?.ids ?? [])].length };
   });
-  check("with two dozen seen out of view, the faint lines lay down only what is in view", cost.px < cost.screen * 0.25, cost);
+  check("with two dozen seen out of view, the faint lines lay down only what is in view", cost.seen >= 24 && cost.n >= 1 && cost.px < cost.screen * 0.25, cost);
 
   // a thread both seen and working in the same folder: the faint line and the dashed edge, both
   const both = async () => E((t2) => { const n = document.querySelector(`[data-live="${t2}"]`), sh = n?.querySelector(":scope > .live-sheet"); return n && { kin: n.classList.contains("is-kin"), peer: n.classList.contains("is-peer"), line: !!n.querySelector(":scope > .live-kin"), dashed: getComputedStyle(sh).outlineStyle, ring: getComputedStyle(sh).boxShadow }; }, t2);
