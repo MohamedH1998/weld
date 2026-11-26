@@ -666,7 +666,7 @@ export function CanvasView() {
         <Presence show={ready && !quiet && !!(editor.playing?.g ?? editor.sceneGroup)} value={editor.playing?.g ?? editor.sceneGroup}>
           {(g, leaving) => g && <Moments editor={editor} g={g} leaving={leaving} plain={!editor.motion} />}
         </Presence>
-        <Presence show={editor.motion && ready && !quiet && !editing && !editor.playing && !editor.sceneGroup && selected.length > 0 && store.tool === "select"} value={selected}>
+        <Presence show={editor.motion && ready && !quiet && !editing && !editor.playing && !editor.sceneGroup && selected.length > 0 && editor.canAnimate && store.tool === "select"} value={selected}>
           {(shapes, leaving) => <Begin editor={editor} shapes={shapes} leaving={leaving} />}
         </Presence>
 

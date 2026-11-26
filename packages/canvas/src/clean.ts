@@ -174,6 +174,7 @@ export function scenesFromOutside(scenes: Record<string, Scene>): Record<string,
   return Object.fromEntries(Object.entries(scenes).map(([g, sc]) => [g, { ...sc, moments: sc.moments.map((m) => ({ ...m, shapes: fromOutside(m.shapes) })) }]));
 }
 
+const LIVE_KINDS = new Set(["thread", "terminal", "browser"]);
 /** A saved board, made safe to use. */
 export function cleanDoc(raw: unknown): Doc {
   if (!rec(raw) || !rec(raw.shapes) || !Array.isArray(raw.order)) return { shapes: {}, order: [] };
@@ -182,8 +183,13 @@ export function cleanDoc(raw: unknown): Doc {
   const scenes: Record<string, Scene> = {};
   if (rec(raw.scenes)) for (const [g, sc] of Object.entries(raw.scenes)) {
     if (!goodId(g) || !rec(sc) || !Array.isArray(sc.moments)) continue;
-    const moments = sc.moments.slice(0, 64).filter(rec).map((m): Moment => ({ id: goodId(m.id) ? m.id : `m${Math.random().toString(36).slice(2, 9)}`, shapes: cleanShapes(Array.isArray(m.shapes) ? m.shapes : []), over: num(m.over) && m.over >= 0 && m.over <= 60000 ? m.over : 500, hold: num(m.hold) && m.hold >= 0 && m.hold <= 600000 ? m.hold : 1200, ...(m.ease === "spring" || m.ease === "even" ? { ease: m.ease } : {}) }));
+    // (a conversation, terminal or page is never part of a drawing that plays: one that was is let go of it)
+    const moments = sc.moments.slice(0, 64).filter(rec).map((m): Moment => ({ id: goodId(m.id) ? m.id : `m${Math.random().toString(36).slice(2, 9)}`, shapes: cleanShapes(Array.isArray(m.shapes) ? m.shapes : []).filter((x) => !LIVE_KINDS.has(x.kind)), over: num(m.over) && m.over >= 0 && m.over <= 60000 ? m.over : 500, hold: num(m.hold) && m.hold >= 0 && m.hold <= 600000 ? m.hold : 1200, ...(m.ease === "spring" || m.ease === "even" ? { ease: m.ease } : {}) }));
     if (moments.length) scenes[g] = { moments, at: num(sc.at) && Number.isInteger(sc.at) && sc.at >= 0 && sc.at < moments.length ? sc.at : 0, ...(sc.once === true ? { once: true as const } : {}) };
+  }
+  for (let i = 0; i < list.length; i++) {
+    const x = list[i]!;
+    if (LIVE_KINDS.has(x.kind) && x.group && scenes[x.group]) { const { group: _g, ...rest } = x; list[i] = rest as Shape; }
   }
   // threads kept off the board: threads only, and none that is also on it
   const away = rec(raw.away) ? cleanShapes(Object.values(raw.away)).filter((s): s is Box => s.kind === "thread" && !list.some((x) => x.id === s.id)) : [];

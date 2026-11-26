@@ -1785,11 +1785,15 @@ export class Editor {
   moments(g: Id): Moment[] {
     return this.store.doc.scenes?.[g] ? this.synced(this.store.doc, g).moments : [];
   }
+  /** Whether what is selected can be made to move (a conversation, terminal or page can't). */
+  get canAnimate() {
+    return this.selected().some((sh) => !isLive(sh));
+  }
   /** Make what is selected move: it becomes one group, and gains a second moment to change. */
   animate() {
     // (a conversation, terminal or page picked along with it isn't made to move: it stays as it is)
     const parts = this.selected().filter((sh) => !isLive(sh));
-    if (this.g.type !== "idle" || !parts.length) return;
+    if (this.g.type !== "idle" || !this.canAnimate) return;
     const s = this.store;
     this.stop();
     s.run(() => {
@@ -1800,6 +1804,9 @@ export class Editor {
         s.put(...parts.map((sh) => ({ ...sh, group: g })));
       }
       if (s.doc.scenes?.[g]) return;
+      // (a group that begins to move lets go of a conversation, terminal or page in it: they stay as they are)
+      const held = this.members(s.doc, g).filter((sh) => isLive(sh));
+      if (held.length) s.put(...held.map((sh) => { const o = { ...sh }; delete o.group; return o; }));
       const shapes = this.members(s.doc, g);
       // two moments to begin with, alike, the second on show and stepped into: whatever part is changed now is what will move
       s.select([]);
@@ -1849,7 +1856,8 @@ export class Editor {
       const moments = [...sc.moments.slice(0, sc.at + 1), { id: newId(), shapes: cur.shapes, over: OVER, hold: HOLD }, ...sc.moments.slice(sc.at + 1)];
       s.setDoc({ ...s.doc, scenes: { ...s.doc.scenes, [g]: { moments, at: sc.at + 1 } } });
     });
-    if (this.store.sel.size !== this.members(s.doc, g).length) this.enter(g);
+    const ids = new Set(this.members(s.doc, g).map((sh) => sh.id));
+    if ([...this.store.sel].filter((id) => ids.has(id)).length !== ids.size) this.enter(g);
     this.invalidate();
   }
   removeMoment(g: Id, i: number) {
@@ -2287,7 +2295,8 @@ export class Editor {
     // shapes grouped with a group that moves join it (and are there from this moment on)
     const gid = this.selected().map((sh) => sh.group).find((g) => !!g && !!scenes[g]) ?? newId();
     s.run(() => {
-      s.put(...this.selected().map((sh) => ({ ...sh, group: gid })));
+      // (a conversation, terminal or page doesn't join a group that moves)
+      s.put(...this.selected().filter((sh) => !scenes[gid] || !isLive(sh)).map((sh) => ({ ...sh, group: gid })));
       this.tidyScenes();
     });
     this.invalidate();

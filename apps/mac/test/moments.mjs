@@ -44,7 +44,23 @@ export default async ({ app, page, out }) => {
   await step(g2, 1, 0);
   await wait(300);
   const re2 = weld(["draw", "-"], JSON.stringify({ story: { ...story, replace: `#${g2}` } }));
-  check("…again, after it has been stepped through again", !/not done|not connected/.test(re2), re2);
+  const g3 = /= #(\w+)/.exec(re2)?.[1];
+  check("…again, after it has been stepped through again", !/not done|not connected|failed/.test(re2) && !!g3 && g3 !== g2, re2);
+  // a moment added with the conversation picked along with the whole drawing: the drawing is still moved as a whole
+  await E(([g, T]) => { const ed = window.__editor, d = ed.store.doc; ed.leave?.(); ed.store.select([...d.order.filter((id) => d.shapes[id]?.group === g), T]); ed.addMoment(g); }, [g3, T]);
+  await wait(200);
+  const inside = await E(() => window.__editor.sceneGroup ?? null);
+  const scoped = await E(() => window.__editor.scope ?? null);
+  check("a moment added with its conversation picked too leaves the drawing whole (not stepped into)", scoped !== g3, { scoped, inside, g3 });
+  // a board saved with a conversation inside a drawing that plays (as before this) is mended as it opens
+  await E(([g, T]) => { const st = window.__editor.store, d = st.doc, t = d.shapes[T]; st.setDoc({ ...d, shapes: { ...d.shapes, [T]: { ...t, group: g } }, scenes: { ...d.scenes, [g]: { ...d.scenes[g], moments: d.scenes[g].moments.map((m) => ({ ...m, shapes: [...m.shapes, { ...t, group: g }] })) } } }); st.emit(); }, [g3, T]);
+  await wait(2500);
+  await page.reload();
+  await wait(2500);
+  const mended = await E(([g, T]) => { const d = window.__editor.store.doc; return { group: d.shapes[T]?.group ?? null, inMoments: (d.scenes?.[g]?.moments ?? []).some((m) => m.shapes.some((x) => x.id === T)), scene: !!d.scenes?.[g] }; }, [g3, T]);
+  check("a board saved with its conversation inside a drawing that plays opens mended (the drawing still plays)", mended.group === null && !mended.inMoments && mended.scene, mended);
+  const re3 = weld(["draw", "-"], JSON.stringify({ story: { ...story, replace: `#${g3}` } }));
+  check("…and the agent can redraw it again", !/not done|not connected|failed/.test(re3) && /= #\w+/.test(re3), re3);
   // and what the person drew stays out of its reach
   await E(() => { const st = window.__editor.store; st.run(() => st.put({ id: "mine1", kind: "rect", x: 3000, y: 0, w: 100, h: 60, text: "Mine", tone: "ink", fill: "tint" })); st.emit(); });
   const other = weld(["draw", "-"], JSON.stringify({ remove: ["#mine1"] }));
