@@ -356,7 +356,7 @@ export class Threads {
     copy.id = to;
     // the copy starts its own session with each agent, carrying the record across as a handoff
     // (what the original left running stays the original's)
-    copy.meta = { ...copy.meta, sessions: {}, status: "idle", unread: false, queue: [], handoff: true, services: [], asking: false, background: [], backgroundMore: 0 };
+    copy.meta = { ...copy.meta, sessions: {}, status: "idle", unread: false, queue: [], handoff: true, services: [], asking: false, background: [], backgroundMore: 0, backgroundSince: null };
     // (what T3 Code has seen, and that T3 Code made it, belong to the original)
     delete copy.meta.acpSeen;
     delete copy.meta.acpMade;
@@ -916,9 +916,11 @@ export class Threads {
    *  newest dozen, of all it has (each task kept by its run until it ends, however many). */
   showBackground(id, lp) {
     const list = [...(lp.bg?.values() ?? [])].filter((b) => b.back).map(({ id: k, what, kind, since }) => ({ id: k, what, kind, since }));
-    const shown = list.slice(-12);
-    const now0 = this.all.get(id)?.meta?.background ?? [];
-    if (JSON.stringify(now0) !== JSON.stringify(shown)) this.meta(id, { background: shown, ...(list.length > shown.length ? { backgroundMore: list.length - shown.length } : { backgroundMore: 0 }) });
+    const shown = list.slice(-12), more = list.length - shown.length, since = list.length ? Math.min(...list.map((b) => b.since)) : null;
+    const m = this.all.get(id)?.meta ?? {};
+    // (how many there are, and since when the oldest, are of all of them, not only those shown)
+    if (JSON.stringify(m.background ?? []) !== JSON.stringify(shown) || (m.backgroundMore ?? 0) !== more || (m.backgroundSince ?? null) !== since)
+      this.meta(id, { background: shown, backgroundMore: more, backgroundSince: since });
   }
   /** Whether a thread's agent has work going on in the background now. */
   behind(id) {
@@ -968,7 +970,7 @@ export class Threads {
     if (!lp) return;
     this.live.delete(id);
     // (what it had going in the background goes with it)
-    if (this.all.get(id)?.meta?.background?.length) this.meta(id, { background: [], backgroundMore: 0 });
+    if (this.all.get(id)?.meta?.background?.length) this.meta(id, { background: [], backgroundMore: 0, backgroundSince: null });
     clearTimeout(lp.idle);
     lp.onEvent = lp.onClose = null;
     if (lp.dead) return;
@@ -1059,6 +1061,8 @@ export class Threads {
     // stopped before the agent was told anything
     if (this.starting.has(id)) {
       this.starting.delete(id);
+      // (and work its kept run has going in the background stops too)
+      if (this.behind(id)) this.drop(id);
       this.put(id, { kind: "note", id: `n${now().toString(36)}s`, text: "Stopped", at: now() });
       this.meta(id, { status: "idle", queue: [] });
       for (const turn of [...(this.reserved.get(id)?.keys() ?? [])]) this.finish(id, turn, "stopped");
@@ -1098,6 +1102,8 @@ export class Threads {
     if (lp?.proc === run.proc) {
       this.live.delete(id);
       clearTimeout(lp.idle);
+      // (what it had going in the background stops with it)
+      if (this.all.get(id)?.meta?.background?.length) this.meta(id, { background: [], backgroundMore: 0, backgroundSince: null });
     }
     signal(run.proc, "SIGINT");
     // asked again, more firmly, for as long as it has not gone (once it has, its number may be someone else's)

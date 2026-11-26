@@ -4,7 +4,8 @@
 // run that started it: a branch doesn't inherit it, and a run let go has no say over the next run's. However many tasks,
 // none is lost from view.
 // A stand-in for Claude Code (test/fake/claude) and for the login shell keep this off any real agent:
-//   PATH="$PWD/test/fake:$PATH" SHELL="$PWD/test/fake/shell" node scripts/shot.mjs out/background test/background.mjs
+// (the stand-in lingers 3 s when told to stop, so a run let go is still about as the next one starts)
+//   FAKE_CLAUDE_TERM_MS=3000 PATH="$PWD/test/fake:$PATH" SHELL="$PWD/test/fake/shell" node scripts/shot.mjs out/background test/background.mjs
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const check = (name, ok, extra) => console.log(`${ok ? "ok  " : "FAIL"} ${name}${!ok && extra !== undefined ? ` -> ${JSON.stringify(extra).slice(0, 300)}` : ""}`);
 
@@ -41,8 +42,10 @@ export default async ({ app, page, shot }) => {
   // far off: the card's face says it, the strip (as the rest) isn't shown
   await E(() => { const st = window.__editor.store; st.cam = { ...st.cam, z: 0.15 }; st.emit(); });
   await wait(700);
-  const far = await E((T) => { const n = document.querySelector(`[data-live="${T}"]`); return { face: n?.querySelector(".far-card")?.textContent ?? "", strip: n ? getComputedStyle(n.querySelector(".thread-behind") ?? n).visibility : null }; }, T);
-  check("far off, the card's face says it is working in the background, the strip not shown", /In the background: Build the Acme API/.test(far.face) && far.strip === "hidden", far);
+  const far = await E((T) => { const n = document.querySelector(`[data-live="${T}"]`), st = n?.querySelector(".far-state"); return { face: n?.querySelector(".far-card")?.textContent ?? "", state: st?.textContent ?? "", seen: st ? getComputedStyle(st).visibility !== "hidden" && st.getBoundingClientRect().width > 0 : false, strip: n ? getComputedStyle(n.querySelector(".thread-behind") ?? n).visibility : null }; }, T);
+  check("far off, the card's face says, visibly, it is working in the background; the strip not shown", far.state === "In the background" && far.seen && /In the background: Build the Acme API/.test(far.face) && far.strip === "hidden", far);
+  const boards = await E(() => window.weld.boards.list?.().then?.((l) => l.find((b) => b.current)?.working) ?? null);
+  check("the boards list counts it as an agent at work (so the board isn't offered to be put away)", boards === null || boards >= 1, boards);
   await E((T) => { window.__editor.fit([T]); }, T);
   await wait(500);
   // a branch, while it works, doesn't inherit it
@@ -57,13 +60,17 @@ export default async ({ app, page, shot }) => {
     await E(([T, how]) => window.weld.thread.send(T, { text: `go ${how}:2` }), [T, how]);
     const on = await until(async () => ((await get()).meta.background?.length ? true : null), 6000);
     const off = await until(async () => (!(await get()).meta.background?.length ? true : null), 8000);
-    check(`a task that ends with only ${how === "bgn" ? "its notification" : "its update"} goes`, !!on && !!off);
+    await wait(400);
+    const corner = await E(() => !!document.querySelector('.top-pill[data-state="working"]'));
+    check(`a task that ends with only ${how === "bgn" ? "its notification" : "its update"} goes, from the card and the corner`, !!on && !!off && !corner, { on, off, corner });
   }
 
   // however many: a long build among a dozen short ones stays in view after they have ended
   await E((T) => window.weld.thread.send(T, { text: "lots bgmany" }), T);
   await until(async () => ((await get()).meta.background?.length ? true : null), 6000);
-  await wait(6000);
+  await wait(500);
+  check("thirteen going: the card says thirteen", /^13 in the background/.test((await strip()) ?? ""), await strip());
+  await wait(5500);
   const after = (await get()).meta.background ?? [];
   check("a long task among a dozen short ones is still shown once they have ended", after.length === 1 && after[0].what === "Long build", after.map((b) => b.what));
 
@@ -87,4 +94,12 @@ export default async ({ app, page, shot }) => {
   const cap = await E(() => { const c = [...document.querySelectorAll(".ask-capsule")].find((x) => /deploy/.test(x.textContent)); return c && { text: c.textContent, state: c.getAttribute("data-state") }; });
   check("a thread in the bar with work in the background (read): its capsule says so, and is working", /In the background: Build the Acme API/.test(cap?.text ?? "") && cap?.state === "working", cap);
   await shot?.("capsule");
+
+  // a thread no longer on the board (deleted, its undo gone with the window): its work in the background is stopped
+  await E((T) => window.weld.thread.set(T, { mode: "full" }), T);
+  await E((T) => window.weld.thread.send(T, { text: "orphan bg:30" }), T);
+  await until(async () => ((await get()).meta.background?.some((b) => /Acme/.test(b.what)) ? true : null), 8000);
+  await E((away) => window.weld.thread.onBoard([away]), away);
+  const gone = await until(async () => (!(await get()).meta.background?.length ? true : null), 8000);
+  check("a thread no longer on the board has its background work stopped", !!gone);
 };

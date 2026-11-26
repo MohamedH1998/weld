@@ -48,6 +48,8 @@ export interface Meta {
   background?: { id: string; what: string; kind?: string; since: number }[];
   /** How many more than those shown (the newest dozen) it has going. */
   backgroundMore?: number;
+  /** When the oldest of all it has going in the background began (ms). */
+  backgroundSince?: number | null;
   mode: Mode;
   /** The model asked for, and the agent it was asked of (another agent goes with its own default). */
   model?: string;

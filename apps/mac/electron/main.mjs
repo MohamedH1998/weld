@@ -1556,7 +1556,7 @@ function wire() {
       for (const id of ids) {
         const t = threads.all.get(id);
         if (!t) continue;
-        if (t.meta.status === "running") working++;
+        if (t.meta.status === "running" || threads.behind(id)) working++;
         else if (t.meta.unread || t.meta.asking) waiting++;
       }
       return { id: b.id, name: b.name, dir: b.dir ?? null, current: b.id === cur, working, waiting };
@@ -1735,7 +1735,7 @@ function wire() {
     const on = new Set([...(Array.isArray(ids) ? ids : []), ...boards().awayThreads()]);
     for (const [id, t] of threads.all) {
       if (on.has(id) || id.startsWith("smith")) continue;
-      if (threads.running.has(id)) await threads.stop(id);
+      if (threads.running.has(id) || threads.behind(id)) await threads.stop(id);
       const svc = (t.meta.services ?? []).filter((s) => s.alive);
       for (const s of svc) terminals.close(s.id);
       if (svc.length) threads.meta(id, { services: (t.meta.services ?? []).filter((s) => !s.alive) });

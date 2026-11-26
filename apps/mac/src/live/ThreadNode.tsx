@@ -221,7 +221,7 @@ export function ThreadNode({ box, editor, active, far }: NodeProps) {
       {meta && <Composer id={box.id} editor={editor} meta={meta} items={items} running={running} active={active && !far && !folded} onFolder={() => void setCwd()} />}
       </div>
       {/* (seen from far off, work going on in the background is said there too) */}
-      {folded ? <FarBar w={box.w} title={title} state={state} note={meta?.asking ? "Waiting for you" : behind.length ? "In the background" : undefined} /> : <FarCard w={box.w} h={box.h} icon={ChatCircle} title={title} line={behind.length ? `In the background: ${behind.map((b) => b.what).join(", ")}` : lastLine} state={state} note={meta?.asking ? "Waiting for you" : undefined} />}
+      {folded ? <FarBar w={box.w} title={title} state={state} note={meta?.asking ? "Waiting for you" : behind.length ? "In the background" : undefined} /> : <FarCard w={box.w} h={box.h} icon={ChatCircle} title={title} line={behind.length ? `In the background: ${behind.map((b) => b.what).join(", ")}` : lastLine} state={state} note={meta?.asking ? "Waiting for you" : behind.length ? "In the background" : undefined} />}
     </div>
   );
 }
