@@ -70,5 +70,32 @@ export default async ({ page, shot }) => {
   }
   check("while a block is still arriving, it has no copy button", unfinished);
   check("once closed, its button stays the same button, keys and all, as the rest (a numbered list) arrives", !!kept && kept.marked && kept.focused && kept.arriving, kept);
+
+  // a block fenced with four backticks, holding a three-backtick example: ready only once its own (four-backtick) fence
+  // closes, not at the inner one
+  await page.keyboard.press("Escape");
+  const nested = "A_README:\\n\\n````md\\nRun:\\n```sh\\necho_one\\n```\\nthen_the_rest_of_the_readme_" + "goes_here_".repeat(10) + "\\n````\\n\\nDone.";
+  await page.click(".ask-bar textarea");
+  await page.keyboard.insertText(`pace:50 say:${nested}`);
+  await page.keyboard.press("Enter");
+  await wait(300);
+  await page.locator(".ask-capsule", { hasText: "pace:50" }).click();
+  let early = false, seenOpen = false;
+  for (let t = 0; t < 150; t++) {
+    const st = await E(() => {
+      const r = document.querySelector(".ask-reader"), arriving = !!r?.querySelector(".thread-caret");
+      const said = [...(r?.querySelectorAll(".prose-live") ?? [])].map((x) => x.textContent).join("");
+      const inner = r?.querySelector(".code-block pre")?.textContent ?? "";
+      void said;
+      // (its words all in: the readme's last line has arrived; until then it is certainly not closed)
+      return { arriving, btn: !!r?.querySelector(".code-block .code-copy"), block: !!r?.querySelector(".code-block"), closed: (inner.match(/goes here/g) ?? []).length >= 10 };
+    });
+    if (st.block && st.arriving) seenOpen = true;
+    if (st.btn && st.arriving && !st.closed) early = true;
+    if (!st.arriving && seenOpen) break;
+    await wait(60);
+  }
+  check("a four-backtick block holding a three-backtick example has no button until its own fence closes", seenOpen && !early, { seenOpen, early });
+  check("…and has one once the answer is done", await E(() => document.querySelectorAll(".ask-reader .code-block .code-copy").length) >= 1);
 };
 

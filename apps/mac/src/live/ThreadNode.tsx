@@ -394,8 +394,10 @@ const CodeSource = createContext<{ text: string; arriving: boolean }>({ text: ""
 const PreBlock = ({ children, node }: { children?: React.ReactNode; node?: { position?: { start: { offset?: number }; end: { offset?: number } } } }) => {
   const { text, arriving } = useContext(CodeSource);
   const at = node?.position, src = at && at.start.offset !== undefined && at.end.offset !== undefined ? text.slice(at.start.offset, at.end.offset) : "";
-  // (closed: a fence line after its first one; or an indented block, which has no fence to wait for)
-  const fenced = /^\s*(```|~~~)/.test(src), closed = !fenced || /\n\s*(```|~~~)\s*$/.test(src);
+  // (closed: a line after its first of the same fence, at least as long, and nothing else; or an indented block, which
+  // has no fence to wait for)
+  const open = /^ {0,3}(`{3,}|~{3,})/.exec(src), fence = open?.[1];
+  const closed = !fence || src.split("\n").slice(1).some((l) => { const m = /^ {0,3}(`{3,}|~{3,})\s*$/.exec(l); return !!m && m[1]![0] === fence[0] && m[1]!.length >= fence.length; });
   return <CodeBlock ready={!arriving || closed}>{children}</CodeBlock>;
 };
 const Part = memo(function Part({ text, open, arriving }: { text: string; open: (url: string) => void; arriving?: boolean }) {
