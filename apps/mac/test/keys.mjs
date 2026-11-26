@@ -223,6 +223,26 @@ export default async ({ app, page, shot }) => {
   await page.keyboard.press("Escape");
   await wait(300);
 
+  // Redo two steps back puts the caret where that step left it, not where a later step was
+  await E(() => { const st = window.__editor.store; st.run(() => st.put({ id: "r4", kind: "rect", x: 700, y: 200, w: 220, h: 120, text: "Billing", tone: "ink", fill: "tint" })); st.emit(); window.__editor.edit("r4"); });
+  await wait(400);
+  await E(() => { const el = document.activeElement, r = document.createRange(); r.selectNodeContents(el); r.collapse(false); getSelection().removeAllRanges(); getSelection().addRange(r); });
+  await page.keyboard.type("X");
+  await E(() => { const el = document.activeElement, r = document.createRange(); r.setStart(el.firstChild, 0); r.setEnd(el.firstChild, 7); getSelection().removeAllRanges(); getSelection().addRange(r); });
+  await page.keyboard.type("Y");
+  await wait(100);
+  await menu("Undo");
+  await menu("Undo");
+  await wait(150);
+  await menu("Redo");
+  await wait(150);
+  await page.keyboard.type("Z");
+  await wait(100);
+  const redo2 = await E(() => document.activeElement.textContent);
+  check("Redo of an earlier step leaves the caret where that step did", redo2 === "BillingXZ", redo2);
+  await page.keyboard.press("Escape");
+  await wait(300);
+
   // with nothing being written, the board answers
   await E(() => { document.activeElement?.blur?.(); });
   await menu("Select All");

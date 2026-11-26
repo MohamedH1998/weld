@@ -1315,6 +1315,8 @@ function unionOf(moments: { shapes: Shape[] }[]): Rect {
 // ── typing ──────────────────────────────────────────────────────────
 /** What a shape's words editor held at one moment, and where its caret or selection was (in characters of its words). */
 type Snap = { html: string; start: number; end: number };
+/** One step of a shape's words editor's own undo. */
+type Step = { before: Snap; after: Snap };
 // (a line break counts as one character, so the end of one line and the start of the next are different places)
 const spots = (el: HTMLElement) => {
   const out: (Text | HTMLBRElement)[] = [], w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT);
@@ -1366,7 +1368,7 @@ function TextEditor({ editor, shape, dark }: { editor: Editor; shape: Shape; dar
   // its own undo (the page's is shared by every field, a draft in the bar included): what it held before each step, kept
   // exactly as it was (its words as typed, its line breaks) with where the caret was, a step being a burst of typing, a
   // paste, a cut, a move by dragging, typing over a selection, or one word chosen with an input method
-  const hist = useRef({ past: [] as Snap[], future: [] as Snap[], at: 0, composing: false, moving: false, pending: null as null | { snap: Snap; fresh: boolean; whole: boolean }, after: null as null | Snap });
+  const hist = useRef({ past: [] as Step[], future: [] as Step[], at: 0, composing: false, moving: false, pending: null as null | { snap: Snap; fresh: boolean; whole: boolean; join?: boolean } });
   // typed in the faces it is set in
   const own = shape.face && FACE_LIST.some((f) => f.id === shape.face) ? faceFonts(shape.face as Face) : { font: FONT, mono: MONO };
 
@@ -1406,26 +1408,26 @@ function TextEditor({ editor, shape, dark }: { editor: Editor; shape: Shape; dar
     const now = (): Snap => ({ html: el.innerHTML, ...caretOf(el) });
     // a change is kept only once it has happened (an input that changes nothing leaves undo and redo as they were):
     // `fresh`, a step starts here whatever came just before; `whole`, nothing typed after joins it
+    // (each step keeps what was there before it and after it, caret and all: Undo goes to the one, Redo to the other)
     const kept = () => {
       const p = h.pending;
       h.pending = null;
       if (!p || el.innerHTML === p.snap.html) return;
-      const t = Date.now();
-      if (p.fresh || t - h.at > 600 || !h.past.length) h.past.push(p.snap);
+      const t = Date.now(), last = h.past.at(-1);
+      if (last && (p.join || (!p.fresh && t - h.at <= 600))) last.after = now();
+      else h.past.push({ before: p.snap, after: now() });
       h.future = [];
       h.at = p.whole ? 0 : t;
-      // (as it stands after the change: where Redo puts the caret back, and where typing that goes on would be)
-      h.after = now();
     };
     const before = (e: InputEvent) => {
       if (h.composing || e.isComposing || e.inputType.startsWith("history")) return;
       // (words dragged within it are one step: the taking out and the putting in)
-      if (e.inputType === "insertFromDrop" && h.moving) { h.moving = false; h.pending = { snap: h.past.at(-1) ?? now(), fresh: false, whole: true }; return; }
+      if (e.inputType === "insertFromDrop" && h.moving) { h.moving = false; h.pending = { snap: now(), fresh: false, whole: true, join: true }; return; }
       h.moving = e.inputType === "deleteByDrag";
       const whole = /Paste|Drop|Cut|Replacement/.test(e.inputType);
-      const snap = now();
+      const snap = now(), last = h.past.at(-1)?.after;
       // (typing somewhere else than where the last typing ended is a step of its own)
-      const moved = !!h.after && (snap.start !== h.after.start || snap.end !== h.after.end || snap.html !== h.after.html);
+      const moved = !last || snap.start !== last.start || snap.end !== last.end || snap.html !== last.html;
       h.pending = { snap, fresh: whole || h.moving || moved || snap.start !== snap.end, whole };
     };
     const input = () => { if (!h.composing) kept(); };
@@ -1435,14 +1437,13 @@ function TextEditor({ editor, shape, dark }: { editor: Editor; shape: Shape; dar
       const back = (e as CustomEvent<string>).detail === "undo";
       if (document.activeElement !== el || h.composing) return;
       const from = back ? h.past : h.future, to = back ? h.future : h.past;
-      const was = from.pop();
-      if (was === undefined) return;
-      const here = now();
-      to.push(h.after && h.after.html === here.html ? h.after : here);
-      el.innerHTML = was.html;
-      setCaret(el, was.start, was.end);
+      const one = from.pop();
+      if (!one) return;
+      to.push(one);
+      const go = back ? one.before : one.after;
+      el.innerHTML = go.html;
+      setCaret(el, go.start, go.end);
       h.at = 0;
-      h.after = null;
     };
     el.addEventListener("beforeinput", before);
     el.addEventListener("input", input);
