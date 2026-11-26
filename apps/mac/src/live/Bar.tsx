@@ -178,9 +178,12 @@ export const Bar = memo(function Bar({ editor, dark }: { editor: Editor; dark: b
   };
 
   // the threads kept here that have something to say: at work, waiting for the person, or done and not yet read
+  const onlyBehind = (id: Id, t: ReturnType<typeof threads.get>) => !openings.has(id) && !!t && !!t.meta.background?.length && t.meta.status !== "running" && !t.meta.asking && !t.meta.unread && !t.meta.error;
   const live = away
     .map((b) => ({ b, t: threads.get(b.id) }))
-    .filter(({ b, t }) => openings.has(b.id) || (t && (t.meta.status === "running" || t.meta.background?.length || t.meta.asking || t.meta.unread || t.meta.error)));
+    .filter(({ b, t }) => openings.has(b.id) || (t && (t.meta.status === "running" || t.meta.background?.length || t.meta.asking || t.meta.unread || t.meta.error)))
+    // (one only busy in the background goes after the rest: one asking the person, or answering, is never behind the +N)
+    .sort((x, y) => Number(onlyBehind(x.b.id, x.t)) - Number(onlyBehind(y.b.id, y.t)));
   const empty = store.doc.order.length === 0 && away.length === 0 && smiths.size === 0 && store.tool === "select" && !store.busy;
   const open = reading ? awayBox(editor, reading) : undefined;
   // (with no agent yet: the card offering them, on a board that is empty but for the terminals it opened; elsewhere, Settings)

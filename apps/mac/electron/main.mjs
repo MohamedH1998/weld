@@ -1556,8 +1556,9 @@ function wire() {
       for (const id of ids) {
         const t = threads.all.get(id);
         if (!t) continue;
+        // (one with work going on behind it and an answer not yet read is both: at work, and for the person)
         if (t.meta.status === "running" || threads.behind(id)) working++;
-        else if (t.meta.unread || t.meta.asking) waiting++;
+        if (t.meta.status !== "running" && (t.meta.unread || t.meta.asking)) waiting++;
       }
       return { id: b.id, name: b.name, dir: b.dir ?? null, current: b.id === cur, working, waiting };
     });

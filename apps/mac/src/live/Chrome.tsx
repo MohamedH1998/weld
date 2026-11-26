@@ -26,7 +26,8 @@ function useLive(editor: Editor) {
       const m = threads.get(b.id)?.meta;
       // waiting on the person to allow something is waiting for them, before it is working
       // (a turn that failed is said before work still going on in the background from before it)
-      return m?.asking ? "ready" : m?.status === "running" ? "working" : m?.error ? "error" : m?.background?.length ? "working" : m?.unread ? "ready" : "quiet";
+      // (and an answer not yet read is for the person, before work still going on behind it)
+      return m?.asking ? "ready" : m?.status === "running" ? "working" : m?.error ? "error" : m?.unread ? "ready" : m?.background?.length ? "working" : "quiet";
     }
     return facts.get(b.id)?.busy ? "working" : "quiet";
   };
