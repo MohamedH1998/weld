@@ -1,0 +1,24 @@
+#!/usr/bin/env node
+// A stand-in for Claude Code in its scripted mode (`claude -p --input-format stream-json --output-format stream-json`),
+// for checks: each message it is sent is answered "ok N", and its result says what the whole run has cost so far, as
+// Claude Code's does (a running total: $0.10 more each turn).
+let n = 0, buf = "";
+const sid = `fake-${process.pid}`;
+const out = (m) => process.stdout.write(JSON.stringify(m) + "\n");
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", (d) => {
+  buf += d;
+  let i;
+  while ((i = buf.indexOf("\n")) >= 0) {
+    const line = buf.slice(0, i);
+    buf = buf.slice(i + 1);
+    if (!line.trim()) continue;
+    let m;
+    try { m = JSON.parse(line); } catch { continue; }
+    if (m.type !== "user") continue;
+    n += 1;
+    out({ type: "system", subtype: "init", session_id: sid, model: "fake", tools: [], slash_commands: [] });
+    out({ type: "assistant", session_id: sid, message: { id: `m${n}`, role: "assistant", content: [{ type: "text", text: `ok ${n}` }] } });
+    out({ type: "result", subtype: "success", session_id: sid, is_error: false, duration_ms: 10, num_turns: 1, result: `ok ${n}`, total_cost_usd: Math.round(n * 0.1 * 100) / 100 });
+  }
+});

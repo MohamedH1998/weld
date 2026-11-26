@@ -624,7 +624,7 @@ export class Threads {
   }
   /** Follow one turn of an agent's process to its end, writing down what it says and does. */
   attend(id, agent, turn, lp, begun, shot) {
-    const read = lp.acp ? acpReader(this, id, turn, lp.spec) : agent === "claude" ? claudeReader(this, id, turn) : codexReader(this, id, turn);
+    const read = lp.acp ? acpReader(this, id, turn, lp.spec) : agent === "claude" ? claudeReader(this, id, turn, lp) : codexReader(this, id, turn);
     const run = { proc: lp.proc, stopped: false, lp, interrupt: lp.interrupt, turn, hard: lp.hard };
     this.running.set(id, run);
     clearTimeout(lp.idle);
@@ -1164,7 +1164,7 @@ function resultText(content) {
   return content == null ? "" : JSON.stringify(content);
 }
 
-function claudeReader(th, id, turn) {
+function claudeReader(th, id, turn, lp) {
   let done = false, failure = null;
   // per speaker (the agent itself, or a helper it started): the message being written, and its pieces in order
   const speakers = new Map();
@@ -1241,7 +1241,12 @@ function claudeReader(th, id, turn) {
       if (ev.type === "result") {
         done = true;
         const t = th.get(id);
-        th.meta(id, { cost: (t.meta.cost || 0) + (ev.total_cost_usd || 0), lastMs: ev.duration_ms });
+        // (what it says it has cost is its whole run's so far, every turn of the agent kept running between turns: only
+        // what this turn added is added to the thread's, or the turns before would be counted again with each one)
+        const total = Number(ev.total_cost_usd) || 0, seen = lp?.costSeen ?? 0;
+        const added = total >= seen ? total - seen : total;
+        if (lp) lp.costSeen = total;
+        th.meta(id, { cost: (t.meta.cost || 0) + added, lastMs: ev.duration_ms });
         if (ev.is_error) failure = clip(String(ev.result || ev.subtype || "The turn failed"), 800);
         if (ev.session_id) th.meta(id, { sessions: { ...t.meta.sessions, claude: ev.session_id } });
       }
