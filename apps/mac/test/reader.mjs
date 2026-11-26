@@ -17,11 +17,14 @@ export default async ({ app, page, shot }) => {
   // a shape on the board, selected: copying words must not copy it instead
   await E(() => { const st = window.__editor.store; st.run(() => st.put({ id: "r1", kind: "rect", x: 0, y: 0, w: 200, h: 100, text: "Acme API", tone: "ink", fill: "tint" })); st.select(["r1"]); st.emit(); });
   // a long answer, longer than the reader is tall
-  const words = Array.from({ length: 60 }, (_, i) => `Step ${i + 1}: the checkout service calls the payments API and waits for its answer.`).join(" ");
+  // (the mock speaks one word given to it, its underscores read as spaces)
+  const words = Array.from({ length: 30 }, (_, i) => `Step ${i + 1}: the checkout service calls the payments API and waits for its answer.`).join(" ").replace(/ /g, "_");
   await page.click(".ask-bar textarea");
   await page.keyboard.insertText(`say:${words}`);
   await page.keyboard.press("Enter");
-  for (let t = 0; t < 60 && (await E(() => document.querySelector(".ask-capsule")?.getAttribute("data-state"))) !== "done"; t++) await wait(250);
+  let done = false;
+  for (let t = 0; t < 160 && !done; t++) { done = (await E(() => document.querySelector(".ask-capsule")?.getAttribute("data-state"))) === "done"; if (!done) await wait(250); }
+  check("the agent answers at length", done);
   await page.click(".ask-capsule");
   await wait(700);
   const box = await E(() => { const s = document.querySelector(".ask-reader .thread-scroll"); if (!s) return null; const r = s.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2, top: s.scrollTop, max: s.scrollHeight - s.clientHeight, pe: getComputedStyle(s.closest(".live-body") ?? s).pointerEvents }; });
@@ -40,7 +43,7 @@ export default async ({ app, page, shot }) => {
   await shot?.("reader-scrolled");
   // words selected with a drag across them
   const line = await E(() => {
-    const sc = document.querySelector(".ask-reader .thread-scroll"), view = sc.getBoundingClientRect(), w = document.createTreeWalker(sc, NodeFilter.SHOW_TEXT);
+    const sc = document.querySelector(".ask-reader .thread-scroll"), answer = sc.querySelector(".prose-live") ?? sc, view = sc.getBoundingClientRect(), w = document.createTreeWalker(answer, NodeFilter.SHOW_TEXT);
     for (let n = w.nextNode(); n; n = w.nextNode()) {
       if (!/Step \d+/.test(n.data)) continue;
       const r = document.createRange(); r.selectNodeContents(n);
@@ -64,8 +67,15 @@ export default async ({ app, page, shot }) => {
   const taken = await E(() => { const at = window.getSelection().anchorNode?.parentElement ?? document.body; const ev = new ClipboardEvent("copy", { bubbles: true, cancelable: true, clipboardData: new DataTransfer() }); at.dispatchEvent(ev); return { prevented: ev.defaultPrevented, data: ev.clipboardData.getData("text/plain") }; });
   check("copying them copies the words, not the selected shape", !taken.prevented && taken.data === "", taken);
   check("…and the shape is still selected on the board", (await E(() => [...window.__editor.store.sel].join())) === "r1");
-  // and the board's copy still works when no words are selected
-  await E(() => window.getSelection().removeAllRanges());
-  const board = await E(() => { const ev = new ClipboardEvent("copy", { bubbles: true, cancelable: true, clipboardData: new DataTransfer() }); document.body.dispatchEvent(ev); return { prevented: ev.defaultPrevented, data: ev.clipboardData.getData("text/plain").slice(0, 40) }; });
-  check("with no words selected, copy takes the board's shape", board.prevented && /Acme API|"canvas"/.test(board.data), board);
+  // a press on the board's shape lets go of the words: copy is the shape's again
+  const at = await E(() => { const e = window.__editor, x = e.store.doc.shapes.r1, c = e.store.cam; return { x: (x.x + x.w / 2 - c.x) * c.z, y: (x.y + 10 - c.y) * c.z }; });
+  await page.keyboard.press("Escape");
+  await wait(400);
+  await page.mouse.click(at.x, at.y);
+  await wait(300);
+  const after2 = await E(() => ({ words: String(window.getSelection()), sel: [...window.__editor.store.sel].join() }));
+  check("a press on a shape lets go of the selected words", after2.words === "" && after2.sel === "r1", after2);
+  // (the copy event sent where the page sends it: the start of the selection, or the body when there is none)
+  const board = await E(() => { const s = window.getSelection(), at = s.rangeCount && !s.isCollapsed ? s.getRangeAt(0).startContainer.parentElement : document.body; const ev = new ClipboardEvent("copy", { bubbles: true, cancelable: true, clipboardData: new DataTransfer() }); at.dispatchEvent(ev); return { prevented: ev.defaultPrevented, data: ev.clipboardData.getData("text/plain") }; });
+  check("…so ⌘C copies the shape", board.prevented && /Acme API/.test(board.data), board);
 };
