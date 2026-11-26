@@ -344,6 +344,8 @@
 .live-plane[data-far] .live-node[style*="--hue"] > .live-sheet::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 14px; background: var(--hue); border-radius: 12px 12px 0 0; z-index: 3; pointer-events: none; }
 /* what belongs with the one in hand is outlined, faintly, in its colour; the one pointed at from the thread's list, clearly */
 .live-kin { position: absolute; inset: -5.5px; border: 1.5px solid color-mix(in srgb, var(--kin, var(--hue, var(--live-accent))) 55%, transparent); border-radius: 17px; pointer-events: none; }
+/* (round a thread with the dashed edge of one in the same folder, it stands further out, clear of the dashes) */
+.live-node.is-peer > .live-kin { inset: -9px; border-radius: 21px; }
 .live-node.is-kin.is-hot > .live-sheet { box-shadow: 0 0 0 2px var(--kin, var(--hue, var(--live-accent))), 0 0 0 6px color-mix(in srgb, var(--kin, var(--hue, var(--live-accent))) 16%, transparent); }
 /* another thread working in the same folder as the one in hand: a dashed edge (they change the same files) */
 .live-node.is-peer > .live-sheet { outline: 1.5px dashed color-mix(in srgb, var(--live-ink) 45%, transparent); outline-offset: 4px; }

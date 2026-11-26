@@ -67,14 +67,25 @@ export default async ({ page, shot }) => {
     check(`${id === "p1" ? "a panel's" : id === "q1" ? "a turned box's" : "a box's"} faint line lies outside it, its own edge left in its own colour`, blue(line) && !blue(edge), { line, edge });
   }
 
+  // a short panel, close up: the faint line runs straight down its side, outside it (no notches of a larger panel's)
+  await E(() => { const e = window.__editor, st = e.store, A = st.doc.shapes.p1; st.run(() => { st.put({ id: "p2", kind: "panel", x: A.x + 220, y: A.y, w: 160, h: 48, text: "Cache", tone: "ink", fill: "none" }); }); const t = st.doc.order.find((x) => st.doc.shapes[x]?.kind === "thread"), T = st.doc.shapes[t]; st.run(() => st.patch(t, { live: { ...T.live, sees: [...T.live.sees, "drawing:p2"] } })); const P = st.doc.shapes.p2; st.cam = { x: P.x + P.w / 2 - innerWidth / 4, y: P.y + P.h / 2 - innerHeight / 4, z: 2 }; st.select([t]); st.emit(); });
+  await wait(600);
+  const side = await E(() => { const e = window.__editor, c = e.store.cam, P = e.store.doc.shapes.p2, x = (P.x - c.x) * c.z, y = (P.y + P.h / 2 - c.y) * c.z; return [{ x: x - 4.75, y }, { x: x + 4, y }]; });
+  const [sOut, sIn] = await px(side);
+  check("a short panel's faint line runs down its side outside it, close up", blue(sOut) && !blue(sIn), { sOut, sIn });
+  await E(() => { const e = window.__editor, d = e.store.doc; e.fit(d.order.filter((x) => ["thread", "rect", "panel"].includes(d.shapes[x]?.kind))); });
+  await wait(600);
+
   // a thread both seen and working in the same folder: the faint line and the dashed edge, both
   const both = async () => E((t2) => { const n = document.querySelector(`[data-live="${t2}"]`), sh = n?.querySelector(":scope > .live-sheet"); return n && { kin: n.classList.contains("is-kin"), peer: n.classList.contains("is-peer"), line: !!n.querySelector(":scope > .live-kin"), dashed: getComputedStyle(sh).outlineStyle, ring: getComputedStyle(sh).boxShadow }; }, t2);
   const b1 = await both();
   check("a thread seen and in the same folder shows the faint line and the dashed edge together", b1?.kin && b1.peer && b1.line && b1.dashed === "dashed", b1);
+  const apart = await E((t2) => { const n = document.querySelector(`[data-live="${t2}"]`), a = n.querySelector(":scope > .live-kin").getBoundingClientRect(), b = n.querySelector(":scope > .live-sheet").getBoundingClientRect(), z = window.__editor.store.cam.z, sh = getComputedStyle(n.querySelector(":scope > .live-sheet")); return { line: (b.left - a.left) / z, dashesTo: parseFloat(sh.outlineOffset) + parseFloat(sh.outlineWidth) }; }, t2);
+  check("…the faint line standing clear of the dashes", apart.line - 1.5 > apart.dashesTo + 1, apart);
   await shot?.("quiet");
 
   const chips = page.locator(`[data-live="${t1}"] .thread-see`);
-  check("the thread lists them", (await chips.count()) === 5, await chips.allInnerTexts());
+  check("the thread lists them", (await chips.count()) === 6, await chips.allInnerTexts());
   await chips.first().hover();
   await wait(300);
   check("pointing at one in its list outlines that one clearly", (await kin())?.hot === "r1", await kin());

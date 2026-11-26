@@ -1170,6 +1170,15 @@ export function render(
 
   // (`gap`: drawn that far outside the shape, clear of its own edge, so a thin line still reads as the shape's)
   const outline = (s: Shape, width: number, color: string, gap = 0) => {
+    // the shape's own outline; or, `gap` away from it, a plain box or ring round it (a notched or dipped shape's
+    // details, worked out again for a larger shape, would no longer be its own)
+    const around = (r: Rect, b: Box) => {
+      if (!gap) return kindPath(ctx, { ...r, kind: b.kind, notch: b.notch, head: b.head, dips: b.dips, fine: b.fine, text: b.text, levels: b.levels }, 8 * z);
+      const o = { x: r.x - gap, y: r.y - gap, w: r.w + gap * 2, h: r.h + gap * 2 };
+      ctx.beginPath();
+      if (b.kind === "ellipse") ctx.ellipse(o.x + o.w / 2, o.y + o.h / 2, o.w / 2, o.h / 2, 0, 0, Math.PI * 2);
+      else ctx.roundRect(o.x, o.y, o.w, o.h, (b.kind === "pill" ? Math.min(r.w, r.h) / 2 : 8 * z) + gap);
+    };
     ctx.lineWidth = width;
     ctx.strokeStyle = color;
     if (!isArrow(s) && s.rot) {
@@ -1179,13 +1188,12 @@ export function render(
       ctx.rotate(s.rot);
       ctx.translate(-cx, -cy);
       if (isBox(s)) {
-        kindPath(ctx, { x: r.x - gap, y: r.y - gap, w: r.w + gap * 2, h: r.h + gap * 2, kind: s.kind, notch: s.notch, head: s.head, dips: s.dips, fine: s.fine, text: s.text, levels: s.levels }, 8 * z);
+        around(r, s);
         ctx.stroke();
       } else ctx.strokeRect(r.x - 4, r.y - 2, r.w + 8, r.h + 4);
       ctx.restore();
     } else if (isBox(s)) {
-      const r = sr(s);
-      kindPath(ctx, { x: r.x - gap, y: r.y - gap, w: r.w + gap * 2, h: r.h + gap * 2, kind: s.kind, notch: s.notch, head: s.head, dips: s.dips, fine: s.fine, text: s.text, levels: s.levels }, 8 * z);
+      around(sr(s), s);
       ctx.stroke();
     } else if (isText(s)) {
       const r = sr(s);
