@@ -306,6 +306,10 @@ export function CanvasView() {
       hold = null;
     };
     const down = (e: PointerEvent) => {
+      // a press on the board lets go of words selected elsewhere (in a conversation): the board is in hand now, and
+      // what ⌘C copies is what is selected on it (the page's own letting go is cancelled with the press's default)
+      const words = window.getSelection();
+      if (words && !words.isCollapsed && !(document.activeElement instanceof HTMLElement && document.activeElement.isContentEditable)) words.removeAllRanges();
       // talking to a thread with its @ list open, or with ⌘ held: a press points at what is under it, and selects nothing
       if (e.button === 0 && aiming(e.metaKey)) {
         const under = hitTest(store.doc, editor.world({ x: e.clientX, y: e.clientY }), 4 / store.cam.z);
@@ -548,7 +552,8 @@ export function CanvasView() {
     });
     // copy, cut and paste go through the system clipboard
     const onCopy = (e: ClipboardEvent) => {
-      if (elsewhere(e.target) || !store.sel.size) return;
+      // (words selected anywhere in the window are what is copied, whatever is selected on the board)
+      if (elsewhere(e.target) || !store.sel.size || window.getSelection()?.isCollapsed === false) return;
       e.preventDefault();
       e.clipboardData?.setData("text/plain", editor.serialize());
       editor.copy();

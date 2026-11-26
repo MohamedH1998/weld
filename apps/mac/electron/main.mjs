@@ -972,6 +972,20 @@ function guideFor(name) {
 }
 /** Hand what an agent wants drawn to the board, and wait for what the board made of it. */
 const drawWaits = new Map();
+/** Whether a run of this session is going on outside Weld, by this account: any process with the session's id among its
+ *  words that isn't Weld's own (Weld runs agents scripted, with stream-json or as an app server). true, false, or null
+ *  when it can't be told. */
+// (all in one look: the launcher becoming the agent between two looks is never missed)
+function runningOutside(marks) {
+  return new Promise((done) =>
+    execFile("/bin/ps", ["-ww", "-U", String(process.getuid?.() ?? ""), "-o", "command="], { maxBuffer: 8 * 1024 * 1024 }, (err, out) => {
+      if (err) return done(null);
+      const has = (l, m) => l.trim().split(/\s+/).includes(m) || (m.startsWith("/") && l.includes(m));
+      done(String(out).split("\n").some((l) => marks.some((m) => has(l, m)) && !/stream-json|app-server/.test(l) && !/\/bin\/ps\b/.test(l)));
+    }),
+  );
+}
+
 function drawFor(thread, ops) {
   return new Promise((resolve, reject) => {
     const req = randomBytes(6).toString("hex");
@@ -1799,6 +1813,74 @@ function wire() {
   ipcMain.handle("thread:unqueue", (_e, id, at) => threads.unqueue(id, at));
   ipcMain.handle("thread:sendQueued", async (_e, id, at) => (await envReady, threads.sendQueued(id, at)));
   ipcMain.handle("thread:fork", (_e, from, to) => threads.fork(from, to));
+  // A thread's session continued in its agent's own app, in Terminal, in its own folder. Weld lets go of it first (and
+  // waits for its own run to have ended), and holds it until the person brings it back: never by guessing that the other
+  // app has finished with it. What is said meanwhile waits, to be sent when they say.
+  ipcMain.handle("thread:handOut", async (_e, id) => {
+    await envReady;
+    const r = await threads.handOut(id);
+    if (r.error) return r;
+    const bin = which(r.agent);
+    if (!bin) return (threads.takeBack(id, { note: `${r.app} wasn't found on this Mac`, key: r.key }), { error: `${r.app} wasn't found on this Mac` });
+    // The launcher, in a folder of its own (new, this account's only): it starts the agent only once it has claimed the
+    // folder (mkdir, which one only can), so it runs once; bringing the thread back claims it first, so a Terminal that
+    // opens late starts nothing.
+    const q = (x) => `'${String(x).replace(/'/g, `'\\''`)}'`;
+    let dir;
+    try {
+      dir = mkdtempSync(path.join(os.tmpdir(), "weld-continue-"));
+      const file = path.join(dir, `Continue in ${r.app}.command`), args = r.agent === "claude" ? ["--resume", r.sid] : ["resume", r.sid];
+      writeFileSync(file, [
+        "#!/bin/sh",
+        `mkdir ${q(path.join(dir, "claimed"))} 2>/dev/null || { echo "Weld has this conversation back, or it is open in another window."; exit 0; }`,
+        `export PATH=${q(process.env.PATH || "")}`,
+        `cd ${q(r.cwd)} || exit 1`,
+        `exec ${q(bin)} ${args.map(q).join(" ")}`,
+        "",
+      ].join("\n"), { mode: 0o700, flag: "wx" });
+      // (kept with the thread itself, written before the launcher can run: a Weld opened again can still claim it)
+      if (!(await threads.outsideAt(id, dir, r.key))) throw new Error("couldn't write it down");
+      if (TEST) return { app: r.app, sid: r.sid, script: file };
+      const failed = await shell.openPath(file);
+      if (failed) throw new Error(failed);
+      return { app: r.app, sid: r.sid };
+    } catch (e) {
+      try {
+        if (dir) rmSync(dir, { recursive: true, force: true });
+      } catch {
+        /* gone */
+      }
+      threads.takeBack(id, { note: `Couldn't open it in ${r.app}`, key: r.key });
+      return { error: `Couldn't open it in ${r.app}: ${e?.message || e}` };
+    }
+  });
+  // Brought back by the person: not halfway out; a launcher that hasn't started is claimed first, so it never will; and
+  // while a run of the session is going (or starting) there, only when they say so again.
+  ipcMain.handle("thread:takeBack", async (_e, id, force) => {
+    const out = threads.get(id)?.meta?.outside;
+    if (!out) return {};
+    if (out.pending) return { pending: true };
+    let unstarted = false;
+    if (out.dir) {
+      try {
+        mkdirSync(path.join(out.dir, "claimed"));
+        unstarted = true;
+      } catch {
+        /* claimed by the launcher, or gone */
+      }
+    }
+    // (the launcher itself, still starting it (its folder in its command), is as good as running)
+    if (!unstarted && !force && (await runningOutside([out.sid, out.dir].filter(Boolean))) !== false) return { live: true };
+    // (still the hand-out this was about: one made while it looked is left alone)
+    if (threads.get(id)?.meta?.outside?.key !== out.key) return {};
+    try {
+      if (out.dir) rmSync(out.dir, { recursive: true, force: true });
+    } catch {
+      /* gone */
+    }
+    threads.takeBack(id, { key: out.key });
+    return {};
+  });
   ipcMain.handle("thread:forget", async (_e, id) => (typeof id === "string" && id.startsWith("smith") ? threads.forget(id) : undefined));
 }
 

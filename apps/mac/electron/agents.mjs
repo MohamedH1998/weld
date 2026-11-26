@@ -4,6 +4,7 @@
 // command-line agent, signed in as the person, and its events are
 // turned into that one shape as they arrive.
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { Changes } from "./changes.mjs";
 import { CodexServer } from "./codex.mjs";
 import { AcpAgent } from "./acpclient.mjs";
@@ -67,6 +68,8 @@ const NOTE_MARK = String([...CANVAS_NOTE].reduce((h, c) => (h * 31 + c.charCodeA
 export class Threads {
   /** @param {{ dir: () => string, emit: (id: string, ev: object) => void, which: (cmd: string) => string | null, onSettled: (id: string, info: object) => void }} o */
   constructor(o) {
+    /** Kept runs let go and not yet ended, by thread. */
+    this.exiting = new Map();
     this.o = o;
     /** @type {Map<string, any>} */
     this.all = new Map();
@@ -124,7 +127,103 @@ export class Threads {
     });
   }
   held(id) {
-    return (this.reserved.get(id)?.size ?? 0) > 0;
+    // (and while its session is open in its agent's own app, everything said here waits for it to come back)
+    return (this.reserved.get(id)?.size ?? 0) > 0 || !!this.all.get(id)?.meta?.outside;
+  }
+  /** Let a thread's session be continued in its agent's own app (Claude Code, Codex): Weld lets go of its own run of it
+   *  and waits for that run to have ended (two runs of one session would both write to it), and holds what is said here
+   *  until it comes back. Answers what continues it there, in its folder; or why it can't be. */
+  async handOut(id) {
+    const t = this.get(id), agent = t.meta.agent;
+    if (id.startsWith("smith")) return { error: "A smith stays in Weld" };
+    if (agent !== "claude" && agent !== "codex") return { error: "Only Claude Code and Codex threads can be continued in their own app" };
+    const sid = t.meta.sessions?.[agent];
+    if (!sid) return { error: "Nothing to continue yet: ask it something first" };
+    if (t.meta.outside) return { error: `It is already open in ${t.meta.outside.app}` };
+    if (t.meta.status === "running" || this.running.has(id) || this.starting.has(id)) return { error: "It is working: continue it once it has finished" };
+    if ((this.live.get(id)?.tasks ?? 0) > 0) return { error: "It has work going on in the background: continue it once that has finished" };
+    const app = agent === "claude" ? "Claude Code" : "Codex";
+    // (held from now, and "on its way" until Weld's own run of it has ended: nothing of Weld's starts it, and it can't be
+    // taken back halfway)
+    // (each hand-out its own: what comes back late from an earlier one never undoes a later one)
+    const key = randomUUID();
+    this.meta(id, { outside: { app, sid, since: now(), pending: true, key } });
+    const lp = this.live.get(id), proc = lp && !lp.dead ? lp.proc : null;
+    const codex = agent === "codex" ? this.codexes.get(id) : null, cproc = codex?.proc ?? null;
+    this.drop(id);
+    if (codex) (clearTimeout(this.codexIdle.get(id)), this.retireCodex(id));
+    const alive = (p) => !!p && p.exitCode === null && p.signalCode === null;
+    const ended = (p) => (!alive(p) ? Promise.resolve() : new Promise((done) => p.once("exit", () => done())));
+    // (and any run of it Weld let go a moment ago, still finishing)
+    const both = () => Promise.all([ended(proc), ended(cproc), this.exiting.get(id) ?? null]);
+    // (its Codex servers let go earlier, known until they have gone)
+    const others = () => [...(this.retired?.get(id) ?? [])];
+    await Promise.race([both(), new Promise((r) => setTimeout(r, 7000))]);
+    // (one that won't stop is ended, and waited for a little longer)
+    if ([proc, cproc, ...others()].some(alive)) {
+      for (const p of [proc, cproc, ...others()]) if (alive(p)) signal(p, "SIGKILL");
+      await Promise.race([both(), new Promise((r) => setTimeout(r, 2000))]);
+    }
+    if ([proc, cproc, ...others()].some(alive)) {
+      if (this.get(id).meta.outside?.key === key) this.meta(id, { outside: null });
+      return { error: "Weld's own run of it did not stop: try again in a moment" };
+    }
+    if (this.get(id).meta.outside?.key !== key) return { error: "It was brought back meanwhile" };
+    this.meta(id, { outside: { app, sid, since: this.get(id).meta.outside?.since ?? now(), key } });
+    this.put(id, { kind: "note", id: `n${now().toString(36)}o`, text: `Continued in ${app}`, at: now() });
+    return { agent, app, sid, key, cwd: t.meta.cwd || os.homedir() };
+  }
+  /** A process of a thread's on its way out, known until it has gone (a hand-out of the thread waits for it). */
+  leavingProc(id, p) {
+    if (!p || p.exitCode !== null || p.signalCode !== null) return;
+    if (!this.retired) this.retired = new Map();
+    const set = this.retired.get(id) ?? new Set();
+    this.retired.set(id, set.add(p));
+    const done = new Promise((r) => p.once("exit", () => (set.delete(p), set.size || this.retired.get(id) !== set || this.retired.delete(id), r())));
+    const was = this.exiting.get(id), all = was ? Promise.all([was, done]) : done;
+    this.exiting.set(id, all);
+    void all.then(() => this.exiting.get(id) === all && this.exiting.delete(id));
+  }
+  /** Let go of a thread's Codex server: shut down, and its ending kept (a hand-out of the thread waits for it). */
+  retireCodex(id) {
+    const c = this.codexes.get(id), p = c?.proc;
+    this.codexes.delete(id);
+    if (p && p.exitCode === null && p.signalCode === null) {
+      // (known until it has gone, however long: one that hasn't gone after 6 s is ended)
+      if (!this.retired) this.retired = new Map();
+      const set = this.retired.get(id) ?? new Set();
+      this.retired.set(id, set.add(p));
+      const kill = setTimeout(() => signal(p, "SIGKILL"), 6000);
+      kill.unref?.();
+      const done = new Promise((r) => p.once("exit", () => (clearTimeout(kill), set.delete(p), set.size || this.retired.get(id) !== set || this.retired.delete(id), r())));
+      const was = this.exiting.get(id);
+      const both = was ? Promise.all([was, done]) : done;
+      this.exiting.set(id, both);
+      void both.then(() => this.exiting.get(id) === both && this.exiting.delete(id));
+    }
+    c?.shutdown();
+  }
+  /** Where the launcher for a thread out in its agent's own app is (kept with the thread, so it can be claimed later). */
+  async outsideAt(id, dir, key) {
+    const o = this.all.get(id)?.meta?.outside;
+    if (!o || o.key !== key) return false;
+    this.meta(id, { outside: { ...o, dir } });
+    // (written down now, whole, before the launcher can run, after any write of it already on its way, so none older
+    // lands after it: a Weld that stops after it has gives it back as out)
+    await this.chains.get(id);
+    if (this.all.get(id)?.meta?.outside?.key !== key) return false;
+    this.save(id, true);
+    return !this.unsaved.has(id);
+  }
+  /** Back from its agent's own app, when the person brings it back: Weld runs it again when asked. What was said while it
+   *  was out waits, each to be sent when they say (nothing is sent by itself). */
+  takeBack(id, { note = "", key } = {}) {
+    const t = this.all.get(id);
+    // (only the hand-out it is about: one made since stays out)
+    if (!t?.meta?.outside || (key && t.meta.outside.key !== key)) return;
+    const { app } = t.meta.outside;
+    this.meta(id, { outside: null });
+    this.put(id, { kind: "note", id: `n${now().toString(36)}b`, text: note || `Back from ${app}`, at: now() });
   }
   hold(id, turn, mode) {
     let m = this.reserved.get(id);
@@ -238,6 +337,8 @@ export class Threads {
     t.meta.asking = false;
     // what a thread had running in the background stopped with the app
     if (t.meta.services) t.meta.services = t.meta.services.map((s) => ({ ...s, alive: false }));
+    // (one Weld stopped while it was handing out: it never got out, and is Weld's)
+    if (t.meta.outside?.pending) t.meta.outside = null;
     for (const it of t.items) if (it.kind === "ask" && it.status === "waiting") it.status = "stopped";
     this.all.set(id, t);
     return t;
@@ -358,7 +459,7 @@ export class Threads {
     copy.id = to;
     // the copy starts its own session with each agent, carrying the record across as a handoff
     // (what the original left running stays the original's)
-    copy.meta = { ...copy.meta, sessions: {}, status: "idle", unread: false, queue: [], handoff: true, services: [], asking: false };
+    copy.meta = { ...copy.meta, sessions: {}, status: "idle", unread: false, queue: [], handoff: true, services: [], asking: false, outside: null };
     // (what T3 Code has seen, and that T3 Code made it, belong to the original)
     delete copy.meta.acpSeen;
     delete copy.meta.acpMade;
@@ -449,7 +550,7 @@ export class Threads {
     // another agent: the one kept running for this thread is let go (it would only sit there)
     if ("agent" in allowed && allowed.agent !== this.get(id).meta.agent && !this.running.has(id)) {
       if (this.live.has(id)) this.drop(id);
-      if (this.codexes.has(id)) (this.codexes.get(id).shutdown(), this.codexes.delete(id));
+      if (this.codexes.has(id)) this.retireCodex(id);
     }
     // another mode: the agent kept running was started with the old one, and could still act with it if it spoke
     // unasked; it is let go, and the next turn starts one with the new mode
@@ -475,13 +576,14 @@ export class Threads {
     const keys = Array.isArray(refs) ? refs.filter((k) => typeof k === "string").slice(0, 100) : [];
     const q = { text, at, ...(keys.length ? { refs: keys } : {}) };
     if (t.meta.status === "running" || this.held(id)) {
-      // said while the agent is busy (or its last turn is still being wound up): it waits its turn
-      this.meta(id, { queue: [...t.meta.queue, q] });
+      // said while the agent is busy (or its last turn is still being wound up): it waits its turn; said while it is out
+      // in its agent's own app, it waits for the person to send it (once it is back), never going by itself
+      this.meta(id, { queue: [...t.meta.queue, t.meta.outside ? { ...q, manual: true } : q] });
       return;
     }
     // what was left waiting by a turn that failed still goes first, in the order it was said
-    if (t.meta.queue.length) {
-      const [first, ...rest] = t.meta.queue;
+    if (t.meta.queue.some((x) => !x.manual)) {
+      const first = t.meta.queue.find((x) => !x.manual), rest = t.meta.queue.filter((x) => x !== first);
       this.meta(id, { queue: [...rest, q] });
       return this.start(id, first.text, extraOf(first));
     }
@@ -669,16 +771,16 @@ export class Threads {
       if (error) this.put(id, { kind: "error", id: `${turn}e`, text: error, at: now() });
       const lastText = [...th.items].reverse().find((x) => x.kind === "text");
       // this agent has now seen everything up to here; a stop also drops what was waiting to be said next
-      this.meta(id, { status: "idle", unread: !run.stopped, error, endedAt: now(), ...(error ? {} : { upto: { ...(th.meta.upto || {}), [agent]: th.items.length } }), ...(run.stopped ? { queue: [] } : {}) });
+      this.meta(id, { status: "idle", unread: !run.stopped, error, endedAt: now(), ...(error ? {} : { upto: { ...(th.meta.upto || {}), [agent]: th.items.length } }), ...(run.stopped ? { queue: th.meta.queue.filter((x) => x.manual) } : {}) });
       this.save(id);
       if (!run.stopped && !th.meta.smith) this.o.onSettled(id, { title: th.meta.title, error, preview: lastText ? clip(lastText.text.replace(/\s+/g, " "), 140) : "" });
       // the turn has wholly finished once what it changed is written: only then is the thread free, and what was said meanwhile goes next
       void settled.then(() => {
         this.finish(id, turn, run.stopped ? "stopped" : error ? "failed" : "done");
         if (run.stopped || error) return;
-        const t2 = this.get(id), next = t2.meta.queue[0];
+        const t2 = this.get(id), next = t2.meta.queue.find((x) => !x.manual);
         if (!next || t2.meta.status === "running" || this.running.has(id) || this.starting.has(id) || this.held(id)) return;
-        this.meta(id, { queue: t2.meta.queue.slice(1) });
+        this.meta(id, { queue: t2.meta.queue.filter((x) => x !== next) });
         this.start(id, next.text, extraOf(next));
       });
     };
@@ -843,13 +945,12 @@ export class Threads {
     clearTimeout(this.codexIdle.get(id));
     this.codexIdle.set(id, setTimeout(() => {
       if (this.running.has(id)) return;
-      this.codexes.get(id)?.shutdown();
-      this.codexes.delete(id);
+      this.retireCodex(id);
     }, 10 * 60 * 1000));
     const idle = [...this.codexes.keys()].filter((k) => k !== id && !this.running.has(k));
     while (this.codexes.size > 5 && idle.length) {
       const k = idle.shift();
-      this.codexes.get(k)?.shutdown();
+      this.retireCodex(k);
       this.codexes.delete(k);
     }
   }
@@ -943,6 +1044,13 @@ export class Threads {
     const lp = this.live.get(id);
     if (!lp) return;
     this.live.delete(id);
+    // (its ending, waited for by a hand-out of the thread to its agent's own app: two runs of a session must not overlap)
+    if (!lp.dead) {
+      const p = Promise.race([new Promise((done) => (lp.proc.exitCode !== null || lp.proc.signalCode !== null ? done() : lp.proc.once("exit", () => done()))), new Promise((r) => setTimeout(r, 6000))]);
+      const was = this.exiting.get(id), all = was ? Promise.all([was, p]) : p;
+      this.exiting.set(id, all);
+      void all.then(() => this.exiting.get(id) === all && this.exiting.delete(id));
+    }
     clearTimeout(lp.idle);
     lp.onEvent = lp.onClose = null;
     if (lp.dead) return;
@@ -957,7 +1065,7 @@ export class Threads {
   /** Start this thread's agent before it is asked anything (the person has begun to type): the first word then comes sooner. */
   warm(id) {
     const t = this.get(id);
-    if (t.meta.status === "running" || this.running.has(id)) return;
+    if (t.meta.status === "running" || this.running.has(id) || t.meta.outside) return;
     // (only the agents Weld keeps running between turns: an ACP agent is started by its turn)
     if (t.meta.agent && t.meta.agent !== "claude" && t.meta.agent !== "codex") return;
     if (t.meta.agent === "codex") {
@@ -1034,14 +1142,16 @@ export class Threads {
     if (this.starting.has(id)) {
       this.starting.delete(id);
       this.put(id, { kind: "note", id: `n${now().toString(36)}s`, text: "Stopped", at: now() });
-      this.meta(id, { status: "idle", queue: [] });
+      // (what waits for its own Send stays: it never goes by itself)
+      this.meta(id, { status: "idle", queue: this.get(id).meta.queue.filter((x) => x.manual) });
       for (const turn of [...(this.reserved.get(id)?.keys() ?? [])]) this.finish(id, turn, "stopped");
       return;
     }
     const run = this.running.get(id);
     if (!run) {
       // nothing is running: what was left waiting is dropped, so it cannot start by surprise later
-      if (this.get(id).meta.queue.length) this.meta(id, { queue: [] });
+      const q = this.get(id).meta.queue, keep = q.filter((x) => x.manual);
+      if (keep.length !== q.length) this.meta(id, { queue: keep });
       // a turn still writing what it changed ends as stopped (it has nothing left to stop, but it was asked)
       for (const e of this.reserved.get(id)?.values() ?? []) e.stopped = true;
       return;
@@ -1057,8 +1167,7 @@ export class Threads {
         if (this.running.get(id) !== run) return;
         // (an ACP agent ends its own process, and its turn then ends as stopped)
         if (run.hard) return void run.hard();
-        this.codexes.get(id)?.shutdown();
-        this.codexes.delete(id);
+        this.retireCodex(id);
         run.lp.onClose?.(1);
       };
       if (!asked) hard();
@@ -1071,6 +1180,8 @@ export class Threads {
       this.live.delete(id);
       clearTimeout(lp.idle);
     }
+    // (known until it has gone: a hand-out of the thread waits for it, however its turn's end is reported first)
+    this.leavingProc(id, run.proc);
     signal(run.proc, "SIGINT");
     // asked again, more firmly, for as long as it has not gone (once it has, its number may be someone else's)
     const there = () => run.proc.exitCode === null && run.proc.signalCode === null;
