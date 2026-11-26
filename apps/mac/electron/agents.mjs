@@ -984,6 +984,8 @@ export class Threads {
   }
   /** Start this thread's agent before it is asked anything (the person has begun to type): the first word then comes sooner. */
   warm(id) {
+    // (nothing starts while Weld is quitting)
+    if (this.quitting || this.closed) return;
     const t = this.get(id);
     if (t.meta.status === "running" || this.running.has(id)) return;
     // (only the agents Weld keeps running between turns: an ACP agent is started by its turn)
