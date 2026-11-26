@@ -99,8 +99,12 @@ export default async ({ app, page, out, shot }) => {
   // a line of the person's to the conversation itself (a connection) does not hold a card
   const k1 = ids(draw({ add: [{ ref: "k", kind: "rect", text: "Connected", x: 0, y: 900, w: 200, h: 60 }] })).k;
   await E(([k, t]) => { const st = window.__editor.store, a = st.doc.shapes[k]; st.run(() => st.put({ id: "conn", kind: "arrow", a: { x: a.x + a.w, y: a.y + 30, bind: { id: k, nx: 1, ny: 0.5 } }, b: { x: a.x + 400, y: a.y + 30, bind: { id: t, nx: 0, ny: 0.5 } }, text: "", tone: "ink" })); st.emit(); }, [k1, T]);
-  const rk = draw({ remove: [`#${k1}`] });
-  check("a line of the person's to the conversation itself does not hold a card back", (await shape(k1)) === null && !/failed/.test(rk), rk);
+  const rk = draw({ remove: [`#${k1}`, "#conn"] });
+  check("a line of the person's to the conversation itself does not hold a card back (listed with it or not)", (await shape(k1)) === null && !/failed/.test(rk), rk);
+  // picked up and put back exactly where it was: not the person's change
+  const back = ids(draw({ add: [{ ref: "pb", kind: "rect", text: "Put back", x: 300, y: 900, w: 200, h: 60 }] })).pb;
+  await E((id) => { const st = window.__editor.store, s0 = st.doc.shapes[id]; st.mark(); st.patch(id, { x: s0.x + 120 }); st.patch(id, { x: s0.x }); st.commit(); st.emit(); }, back);
+  check("a card picked up and put back just where it was is still the agent's", !(await mark(back)));
   // a redraw (take the old away, put a new one down) with something of theirs in it: nothing at all is done
   const before = await E(() => window.__editor.store.doc.order.length);
   const both = draw({ remove: [`#${c3}`], add: [{ ref: "nw", kind: "rect", text: "#4 Acme search", x: 0, y: 1000, w: 260, h: 60 }] });
@@ -122,7 +126,10 @@ export default async ({ app, page, out, shot }) => {
   const partA = await E((g) => { const d = window.__editor.store.doc; return d.order.find((id) => d.shapes[id]?.group === g && d.shapes[id].kind !== "arrow" && "x" in d.shapes[id]); }, gA);
   await E((id) => { const st = window.__editor.store, s = st.doc.shapes[id]; st.run(() => st.patch(id, { x: s.x + 40 })); st.emit(); }, partA);
   const re1 = draw({ story: { ...story, replace: `#${gA}` } });
-  check("redrawing a playing drawing the person changed is refused, and fails saying why", /not done: story: the person has changed/.test(re1) && /^\(failed\)/.test(re1), re1);
+  check("redrawing a playing drawing the person changed is refused, and fails saying why", /story: the person has changed/.test(re1) && !/not done: not done/.test(re1) && /^\(failed\)/.test(re1), re1);
+  const n0 = await E(() => window.__editor.store.doc.order.length);
+  const withLegend = draw({ story: { ...story, replace: `#${gA}` }, add: [{ ref: "lg", kind: "rect", text: "Legend", x: 2000, y: 0, w: 160, h: 60 }] });
+  check("…and a request that redraws it and adds beside it does nothing at all", /not done \(any of it\)/.test(withLegend) && (await E(() => window.__editor.store.doc.order.length)) === n0, withLegend);
   const reF = draw({ story: { ...story, replace: `#${gA}` }, force: true });
   check("…and done when the person asked", !/not done/.test(reF) && !(await E((id) => !!window.__editor.store.doc.shapes[id], partA)), reF);
   const gB = /= #(\w+)/.exec(reF)?.[1];

@@ -150,7 +150,8 @@ export function draw(editor: Editor, thread: Id, ops: DrawOps): { made: Record<s
   // (how many things were left as the person left them: said as a failure, so a script that goes on to draw again stops)
   let heldN = 0;
   // what the person has made or changed counts too when it would go with something taken away: a line of theirs to it
-  const heldBy = (id: Id) => theirs(doc.shapes[id]) || doc.order.some((a) => { const w = doc.shapes[a]; return !!w && isArrow(w) && theirs(w) && (w.a.bind?.id === id || w.b.bind?.id === id) && ![w.a.bind?.id, w.b.bind?.id].some((e) => e && isLive(doc.shapes[e])); });
+  const liveEnded = (w: Shape | undefined) => !!w && isArrow(w) && [w.a.bind?.id, w.b.bind?.id].some((e) => e && isLive(doc.shapes[e]));
+  const heldBy = (id: Id) => (theirs(doc.shapes[id]) && !liveEnded(doc.shapes[id])) || doc.order.some((a) => { const w = doc.shapes[a]; return !!w && isArrow(w) && theirs(w) && (w.a.bind?.id === id || w.b.bind?.id === id) && ![w.a.bind?.id, w.b.bind?.id].some((e) => e && isLive(doc.shapes[e])); });
   ops = { story: asked, add: known("add", ops.add?.slice(0, LIMIT)), connect: known("connect", ops.connect?.slice(0, LIMIT)), change: known("change", ops.change?.slice(0, LIMIT)), remove: ops.remove?.slice(0, LIMIT), copy: known("copy", ops.copy?.slice(0, 10)), repeat: known("repeat", ops.repeat?.slice(0, 10)) };
   for (const a of ops.add ?? []) {
     const kind = a.kind ?? "rect";
@@ -814,7 +815,9 @@ export function draw(editor: Editor, thread: Id, ops: DrawOps): { made: Record<s
           if (!g) problems.push(`not done: story: there is no drawing ${sp!.replace} to replace`);
           // (all of it: a drawing part of which is someone else's is not redrawn over them)
           else if (!old.every((x) => mine.has(x)) || old.some((x) => isLive(doc.shapes[x]!))) problems.push(`not done: story: ${sp!.replace} ${OUT}`);
-          else if (guard && (old.some(heldBy) || (doc.scenes?.[g]?.moments ?? []).some((m) => m.shapes.some((x) => theirs(x))))) (heldN += 1), problems.push(`not done: story: the person has changed ${sp!.replace} since you drew it (in one of its moments, or a line of theirs to it), so it was not drawn over. Read it with weld look and keep their changes (use "change" on the parts you need), or redraw it over them only if the person asked, with "force": true.`);
+          // (held, nothing of the request is done: a legend drawn beside a redraw that did not happen would be one too many)
+          else if (guard && (old.some(heldBy) || (doc.scenes?.[g]?.moments ?? []).some((m) => m.shapes.some((x) => theirs(x)))))
+            return { made: {}, changed: 0, removed: 0, problems: [`not done (any of it): story: the person has changed ${sp!.replace} since you drew it (in one of its moments, or a line of theirs to it), so it was not drawn over. Read it with weld look and keep their changes (use "change" on the parts you need), or redraw it over them only if the person asked, with "force": true.`], held: 1 };
           else {
             const ob = union(old.map((x) => bounds(doc, doc.shapes[x]!)));
             at = ob ? { x: ob.x, y: ob.y } : null;

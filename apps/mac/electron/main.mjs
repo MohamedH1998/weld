@@ -218,7 +218,7 @@ function openDoor() {
             ...Object.entries(r.made).map(([k, v]) => `${k} = #${v}`),
             r.changed ? `changed ${r.changed}` : "",
             r.removed ? `removed ${r.removed}` : "",
-            ...r.problems.map((p) => (/^(to fix|note|not done): /.test(p) ? p : `not done: ${p}`)),
+            ...r.problems.map((p) => (/^(to fix|note|not done( \(any of it\))?): /.test(p) ? p : `not done: ${p}`)),
           ].filter(Boolean).join("\n") + "\n"),
           (e) => done(500, `weld: ${e?.message || e}\n`),
         );

@@ -202,6 +202,17 @@ export class Store {
   commit() {
     const p = this.pending;
     this.pending = null;
+    // (a shape the person picked up and put back just as it was is not theirs for that: it keeps what it was before)
+    if (p && this.markEdits) {
+      let shapes: Record<Id, Shape> | null = null;
+      for (const id of this.doc.order) {
+        const now = this.doc.shapes[id], was = p.doc.shapes[id];
+        if (!now?.edited || !was || was.edited) continue;
+        const { edited: _e, ...rest } = now;
+        if (alike(rest as Shape, was)) (shapes ??= { ...this.doc.shapes })[id] = was;
+      }
+      if (shapes) this.doc = { ...this.doc, shapes };
+    }
     // only a real difference is a step: something made and then removed
     // again within one intention (an abandoned empty text) leaves no trace
     if (p && !sameDoc(p.doc, this.doc)) {
