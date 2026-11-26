@@ -217,10 +217,11 @@ export function ThreadNode({ box, editor, active, far }: NodeProps) {
       <div className="contents" style={folded ? { display: "none" } : undefined}>
       <Sees editor={editor} id={box.id} />
       <Transcript items={items} meta={meta} running={running} active={active} editor={editor} id={box.id} unsaved={thread?.unsaved} />
-      {behind.length > 0 && <Behind list={behind} />}
+      {behind.length > 0 && <Behind list={behind} more={meta?.backgroundMore ?? 0} />}
       {meta && <Composer id={box.id} editor={editor} meta={meta} items={items} running={running} active={active && !far && !folded} onFolder={() => void setCwd()} />}
       </div>
-      {folded ? <FarBar w={box.w} title={title} state={state} note={meta?.asking ? "Waiting for you" : undefined} /> : <FarCard w={box.w} h={box.h} icon={ChatCircle} title={title} line={lastLine} state={state} note={meta?.asking ? "Waiting for you" : undefined} />}
+      {/* (seen from far off, work going on in the background is said there too) */}
+      {folded ? <FarBar w={box.w} title={title} state={state} note={meta?.asking ? "Waiting for you" : behind.length ? "In the background" : undefined} /> : <FarCard w={box.w} h={box.h} icon={ChatCircle} title={title} line={behind.length ? `In the background: ${behind.map((b) => b.what).join(", ")}` : lastLine} state={state} note={meta?.asking ? "Waiting for you" : undefined} />}
     </div>
   );
 }
@@ -426,13 +427,13 @@ const Part = memo(function Part({ text, open }: { text: string; open: (url: stri
 });
 
 /** What its agent left going in the background after its turn, each by what the agent called it, and for how long. */
-function Behind({ list }: { list: NonNullable<Meta["background"]> }) {
+function Behind({ list, more = 0 }: { list: NonNullable<Meta["background"]>; more?: number }) {
   const now = useNow(true);
   return (
     <div className="thread-behind" role="status">
       <span className="thread-spin" />
       <span className="truncate">
-        {list.length === 1 ? "In the background: " : `${list.length} in the background: `}
+        {list.length + more === 1 ? "In the background: " : `${list.length + more} in the background: `}
         {list.map((b) => `${b.what} · ${span(now - b.since)}`).join(", ")}
       </span>
     </div>

@@ -1,5 +1,8 @@
 // Work an agent leaves going in the background after its turn (a build it started) is seen: the thread is "working",
-// its card says what and for how long, the bar's capsule says so, the corner counts it; and when it finishes, it goes.
+// its card says what and for how long (and, far off, so does the card's face), the bar's capsule says so, the corner
+// counts it and its list says what; when it ends (by either of the agent's ways of saying so) it goes. It belongs to the
+// run that started it: a branch doesn't inherit it, and a run let go has no say over the next run's. However many tasks,
+// none is lost from view.
 // A stand-in for Claude Code (test/fake/claude) and for the login shell keep this off any real agent:
 //   PATH="$PWD/test/fake:$PATH" SHELL="$PWD/test/fake/shell" node scripts/shot.mjs out/background test/background.mjs
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -13,30 +16,75 @@ export default async ({ app, page, shot }) => {
   if (!bin?.endsWith("test/fake/claude")) return;
   const T = await E(() => Object.values(window.__editor.store.doc.shapes).find((s) => s.kind === "thread")?.id);
   await E((T) => window.weld.thread.set(T, { agent: "claude", mode: "full" }), T);
-  const get = () => E((T) => window.weld.thread.get(T), T);
-  await E((T) => window.weld.thread.send(T, { text: "start the build in the background bg:8" }), T);
-  let th;
-  for (let t = 0; t < 40; t++) { th = await get(); if (th.meta.status !== "running" && th.meta.background?.length) break; await wait(200); }
-  check("its turn over, the thread keeps what it left going", th.meta.status !== "running" && th.meta.background?.[0]?.what === "Build the Acme API", th.meta);
-  await wait(1500);
-  const card = await E((T) => ({ strip: document.querySelector(`[data-live="${T}"] .thread-behind`)?.textContent ?? null, dot: document.querySelector(`[data-live="${T}"] .live-dot`)?.getAttribute("data-state") }), T);
-  check("its card says what is going on in the background, and for how long", /In the background: Build the Acme API · \d/.test(card.strip ?? ""), card);
-  check("…and counts as working", card.dot === "working", card);
-  const pill = await E(() => document.querySelector('.top-pill[data-state="working"]')?.textContent ?? null);
-  check("the corner counts it as working", /1 working/.test(pill ?? ""), pill);
-  await shot?.("background");
-  for (let t = 0; t < 60; t++) { th = await get(); if (!th.meta.background?.length && th.items.some((i) => i.kind === "text" && i.text === "the build finished")) break; await wait(250); }
-  check("when it finishes it goes, and the agent says so", !th.meta.background?.length && th.items.some((i) => i.kind === "text" && i.text === "the build finished"), th.meta.background);
-  await wait(500);
-  check("…and the card no longer shows it", !(await E((T) => !!document.querySelector(`[data-live="${T}"] .thread-behind`), T)));
+  const get = (id = T) => E((id) => window.weld.thread.get(id), id);
+  const until = async (fn, ms = 15000) => { for (let t = 0; t < ms / 200; t++) { const v = await fn(); if (v) return v; await wait(200); } return null; };
+  const strip = () => E((T) => document.querySelector(`[data-live="${T}"] .thread-behind`)?.textContent ?? null, T);
 
-  // a thread kept in the bar: its capsule says so too
+  await E((T) => window.weld.thread.send(T, { text: "start the build in the background bg:12" }), T);
+  const th = await until(async () => { const th = await get(); return th.meta.status !== "running" && th.meta.background?.length ? th : null; });
+  check("its turn over, the thread keeps what it left going", th?.meta.background?.[0]?.what === "Build the Acme API", th?.meta);
+  await wait(1200);
+  const s1 = await strip();
+  await wait(2100);
+  const s2 = await strip();
+  check("its card says what is going on in the background, and for how long (the time moving on)", /In the background: Build the Acme API · \d/.test(s1 ?? "") && s1 !== s2, { s1, s2 });
+  const dot = await E((T) => document.querySelector(`[data-live="${T}"] .live-dot`)?.getAttribute("data-state"), T);
+  check("…and counts as working", dot === "working", dot);
+  const pill = page.locator('.top-pill[data-state="working"]');
+  check("the corner counts it as working", /1 working/.test((await pill.textContent().catch(() => "")) ?? ""));
+  await pill.click();
+  await wait(300);
+  const row = await E(() => document.querySelector(".running-row .running-doing")?.textContent ?? null);
+  check("…and its list says what, in the background", /In the background: Build the Acme API/.test(row ?? ""), row);
+  await page.keyboard.press("Escape");
+  await shot?.("background");
+  // far off: the card's face says it, the strip (as the rest) isn't shown
+  await E(() => { const st = window.__editor.store; st.cam = { ...st.cam, z: 0.15 }; st.emit(); });
+  await wait(700);
+  const far = await E((T) => { const n = document.querySelector(`[data-live="${T}"]`); return { face: n?.querySelector(".far-card")?.textContent ?? "", strip: n ? getComputedStyle(n.querySelector(".thread-behind") ?? n).visibility : null }; }, T);
+  check("far off, the card's face says it is working in the background, the strip not shown", /In the background: Build the Acme API/.test(far.face) && far.strip === "hidden", far);
+  await E((T) => { window.__editor.fit([T]); }, T);
+  await wait(500);
+  // a branch, while it works, doesn't inherit it
+  const copy = await E(async (T) => (await window.weld.thread.fork(T, `fork${Date.now().toString(36)}`)).meta.background ?? [], T);
+  check("a thread branched from it while it works in the background has nothing in the background", copy.length === 0, copy);
+  const done = await until(async () => { const th = await get(); return !th.meta.background?.length && th.items.some((i) => i.kind === "text" && i.text === "the build finished") ? th : null; }, 20000);
+  check("when it finishes it goes, and the agent says so", !!done);
+  check("…and the card no longer shows it", (await strip()) === null);
+
+  // either of the agent's ways of saying a task ended is enough
+  for (const how of ["bgn", "bgu"]) {
+    await E(([T, how]) => window.weld.thread.send(T, { text: `go ${how}:2` }), [T, how]);
+    const on = await until(async () => ((await get()).meta.background?.length ? true : null), 6000);
+    const off = await until(async () => (!(await get()).meta.background?.length ? true : null), 8000);
+    check(`a task that ends with only ${how === "bgn" ? "its notification" : "its update"} goes`, !!on && !!off);
+  }
+
+  // however many: a long build among a dozen short ones stays in view after they have ended
+  await E((T) => window.weld.thread.send(T, { text: "lots bgmany" }), T);
+  await until(async () => ((await get()).meta.background?.length ? true : null), 6000);
+  await wait(6000);
+  const after = (await get()).meta.background ?? [];
+  check("a long task among a dozen short ones is still shown once they have ended", after.length === 1 && after[0].what === "Long build", after.map((b) => b.what));
+
+  // a run let go (its model changed) has no say over the next run's: what the new one starts stays shown
+  await E((T) => window.weld.thread.set(T, { mode: "edits" }), T);
+  await E((T) => window.weld.thread.send(T, { text: "again bg:10" }), T);
+  const fresh = await until(async () => { const th = await get(); return th.meta.background?.some((b) => b.id.endsWith("bg")) ? th : null; }, 10000);
+  await wait(4000);
+  const kept = (await get()).meta.background ?? [];
+  check("after its run was let go and a new one started, the new run's task stays shown", !!fresh && kept.some((b) => b.what === "Build the Acme API") && !kept.some((b) => b.what === "Long build"), kept.map((b) => b.what));
+
+  // a thread kept in the bar: its capsule says so too, read or not
   await E(() => window.weld.saveSettings({ agent: "claude", mode: "full" }));
   await page.click(".ask-bar textarea");
-  await page.keyboard.insertText("deploy it in the background bg:6");
+  await page.keyboard.insertText("deploy it in the background bg:8");
   await page.keyboard.press("Enter");
-  let cap = null;
-  for (let t = 0; t < 40 && !/In the background/.test(cap?.text ?? ""); t++) { cap = await E(() => { const c = document.querySelector(".ask-capsule"); return c && { text: c.textContent, state: c.getAttribute("data-state") }; }); await wait(250); }
-  check("a thread in the bar with work in the background: its capsule says so, and is working", /In the background: Build the Acme API/.test(cap?.text ?? "") && cap?.state === "working", cap);
+  const away = await until(() => E(() => Object.keys(window.__editor.store.doc.away ?? {}).at(-1) ?? null), 5000);
+  await until(async () => ((await get(away)).meta.background?.length ? true : null), 8000);
+  await E((id) => window.weld.thread.seen(id), away);
+  await wait(500);
+  const cap = await E(() => { const c = [...document.querySelectorAll(".ask-capsule")].find((x) => /deploy/.test(x.textContent)); return c && { text: c.textContent, state: c.getAttribute("data-state") }; });
+  check("a thread in the bar with work in the background (read): its capsule says so, and is working", /In the background: Build the Acme API/.test(cap?.text ?? "") && cap?.state === "working", cap);
   await shot?.("capsule");
 };

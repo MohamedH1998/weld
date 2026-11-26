@@ -538,5 +538,7 @@
 .settings-t3 { height: auto; padding-top: 8px; padding-bottom: 8px; }
 .settings-small { height: 28px; padding: 0 12px; border-radius: 8px; font-size: 12px; flex: none; }
 .settings-on { display: inline-flex; align-items: center; gap: 4px; color: var(--live-accent); flex: none; }
+/* (seen from far off, the card says it: the strip, as the rest of the card, is not shown there) */
+.live-plane[data-far] .thread-behind { visibility: hidden; }
 /* what an agent left going in the background, above its reply box */
 .thread-behind { position: relative; z-index: 1; display: flex; align-items: center; gap: 8px; margin: 0 10px 6px; padding: 6px 10px; border-radius: 8px; font-size: 11.5px; color: var(--live-sub); background: var(--live-tint); }

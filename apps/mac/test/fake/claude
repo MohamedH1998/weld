@@ -33,19 +33,28 @@ process.stdin.on("data", (d) => {
     spent = Math.round((spent + cost) * 100) / 100;
     ran = Math.round((ran + cost) * 100) / 100;
     fs.writeFileSync(file, JSON.stringify({ n, spent }));
-    const bg = /bg:(\d+)/.exec(JSON.stringify(m.message?.content ?? ""));
-    if (bg) {
-      const task = `t${n}`;
+    // background tasks: "bg:<s>" one that ends with both of Claude Code's events, "bgn:<s>" with only the notification,
+    // "bgu:<s>" with only the update; "bgmany" a long one (20 s) and a dozen short ones (3 s)
+    const said = JSON.stringify(m.message?.content ?? "");
+    const tasks = [];
+    for (const [, how, secs] of said.matchAll(/\b(bg|bgn|bgu):(\d+)/g)) tasks.push({ id: `t${n}${how}`, what: "Build the Acme API", secs: Number(secs), how });
+    if (/bgmany/.test(said)) {
+      tasks.push({ id: `t${n}long`, what: "Long build", secs: 20, how: "bg" });
+      for (let k = 0; k < 12; k++) tasks.push({ id: `t${n}s${k}`, what: `Short check ${k + 1}`, secs: 3, how: "bg" });
+    }
+    out({ type: "system", subtype: "init", session_id: sid, model: "fake", tools: [], slash_commands: [] });
+    for (const task of tasks) {
+      out({ type: "system", subtype: "task_started", task_id: task.id, description: task.what, task_type: "local_bash", is_backgrounded: true, session_id: sid });
       setTimeout(() => {
-        out({ type: "system", subtype: "task_updated", task_id: task, patch: { status: "completed" }, session_id: sid });
-        out({ type: "system", subtype: "task_notification", task_id: task, status: "completed", summary: "Background command \"Build the Acme API\" completed (exit code 0)", session_id: sid });
-        out({ type: "system", subtype: "init", session_id: sid, model: "fake", tools: [], slash_commands: [] });
-        out({ type: "assistant", session_id: sid, message: { id: `m${n}b`, role: "assistant", content: [{ type: "text", text: "the build finished" }] } });
-        out({ type: "result", subtype: "success", session_id: sid, is_error: false, duration_ms: 10, num_turns: 1, result: "the build finished", total_cost_usd: runScoped ? ran : spent });
-      }, Number(bg[1]) * 1000);
-      out({ type: "system", subtype: "init", session_id: sid, model: "fake", tools: [], slash_commands: [] });
-      out({ type: "system", subtype: "task_started", task_id: task, description: "Build the Acme API", task_type: "local_bash", is_backgrounded: true, session_id: sid });
-    } else out({ type: "system", subtype: "init", session_id: sid, model: "fake", tools: [], slash_commands: [] });
+        if (task.how !== "bgn") out({ type: "system", subtype: "task_updated", task_id: task.id, patch: { status: "completed" }, session_id: sid });
+        if (task.how !== "bgu") out({ type: "system", subtype: "task_notification", task_id: task.id, status: "completed", summary: `Background command "${task.what}" completed (exit code 0)`, session_id: sid });
+        if (task.how === "bg" && task.what === "Build the Acme API") {
+          out({ type: "system", subtype: "init", session_id: sid, model: "fake", tools: [], slash_commands: [] });
+          out({ type: "assistant", session_id: sid, message: { id: `m${n}b`, role: "assistant", content: [{ type: "text", text: "the build finished" }] } });
+          out({ type: "result", subtype: "success", session_id: sid, is_error: false, duration_ms: 10, num_turns: 1, result: "the build finished", total_cost_usd: runScoped ? ran : spent });
+        }
+      }, task.secs * 1000);
+    }
     out({ type: "assistant", session_id: sid, message: { id: `m${n}`, role: "assistant", content: [{ type: "text", text: `ok ${n}` }] } });
     out({ type: "result", subtype: "success", session_id: sid, is_error: false, duration_ms: 10, num_turns: 1, result: `ok ${n}`, total_cost_usd: runScoped ? ran : spent });
   }

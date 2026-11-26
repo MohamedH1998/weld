@@ -46,6 +46,8 @@ export interface Meta {
   agent: Agent;
   /** Work its agent has going on in the background after its turn (a command, a helper agent), while it runs. */
   background?: { id: string; what: string; kind?: string; since: number }[];
+  /** How many more than those shown (the newest dozen) it has going. */
+  backgroundMore?: number;
   mode: Mode;
   /** The model asked for, and the agent it was asked of (another agent goes with its own default). */
   model?: string;

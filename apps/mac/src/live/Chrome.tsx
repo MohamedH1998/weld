@@ -147,8 +147,11 @@ function RunningRow({ editor, box, state, onHover, go }: { editor: Editor; box: 
     return () => clearInterval(i);
   }, [state]);
   const meta = t?.meta;
-  const doing = meta?.asking ? "Waiting for you" : state === "working" ? doingNow(t?.items ?? [], true, meta?.cwd) : state === "error" ? "Stopped" : "Ready for you";
-  const secs = meta?.startedAt && state === "working" ? Math.max(0, Math.round((Date.now() - meta.startedAt) / 1000)) : null;
+  // (its turn over, working in the background: what, and for how long)
+  const behind = meta?.status !== "running" ? meta?.background ?? [] : [];
+  const doing = meta?.asking ? "Waiting for you" : behind.length ? `In the background: ${behind.map((b) => b.what).join(", ")}` : state === "working" ? doingNow(t?.items ?? [], true, meta?.cwd) : state === "error" ? "Stopped" : "Ready for you";
+  const from = behind.length ? Math.min(...behind.map((b) => b.since)) : meta?.startedAt;
+  const secs = from && state === "working" ? Math.max(0, Math.round((Date.now() - from) / 1000)) : null;
   return (
     <button type="button" className="running-row" style={{ ["--hue" as string]: hueOf(editor, box.id) }} onMouseEnter={onHover} onMouseDown={(e) => e.preventDefault()} onClick={go}>
       <span className="running-hue" />

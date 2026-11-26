@@ -356,7 +356,7 @@ export class Threads {
     copy.id = to;
     // the copy starts its own session with each agent, carrying the record across as a handoff
     // (what the original left running stays the original's)
-    copy.meta = { ...copy.meta, sessions: {}, status: "idle", unread: false, queue: [], handoff: true, services: [], asking: false };
+    copy.meta = { ...copy.meta, sessions: {}, status: "idle", unread: false, queue: [], handoff: true, services: [], asking: false, background: [], backgroundMore: 0 };
     // (what T3 Code has seen, and that T3 Code made it, belong to the original)
     delete copy.meta.acpSeen;
     delete copy.meta.acpMade;
@@ -875,10 +875,18 @@ export class Threads {
           continue;
         }
         // what it has left running in the background is counted: an agent with work under way is not let go for idleness
-        if (ev.type === "system" && ev.subtype === "task_started") lp.tasks = (lp.tasks ?? 0) + 1;
-        else if (ev.type === "system" && ev.subtype === "task_notification") lp.tasks = Math.max(0, (lp.tasks ?? 0) - 1);
-        // …and shown on its thread, each by what the agent called it, so work going on after its turn is seen to be
-        if (lp.thread && ev.type === "system" && typeof ev.task_id === "string") this.backgroundEvent(lp.thread, ev);
+        // (every task it has going, by its id: the whole set, however many, as the agent reports them)
+        if (ev.type === "system" && typeof ev.task_id === "string") {
+          const done = (x) => x && x !== "running" && x !== "pending";
+          lp.bg ??= new Map();
+          if (ev.subtype === "task_started") lp.bg.set(ev.task_id, { id: ev.task_id, what: String(ev.description || ev.task_type || "Working").slice(0, 120), kind: ev.task_type || "", since: now(), back: ev.is_backgrounded !== false });
+          else if (ev.subtype === "task_updated" && ev.patch?.is_backgrounded === true && lp.bg.has(ev.task_id)) lp.bg.get(ev.task_id).back = true;
+          if ((ev.subtype === "task_notification" && done(ev.status)) || (ev.subtype === "task_updated" && done(ev.patch?.status))) lp.bg.delete(ev.task_id);
+          lp.tasks = lp.bg.size;
+          // …and shown on its thread, each by what the agent called it, so work going on after its turn is seen to be
+          // (only by the run that is the thread's now: one let go, still finishing, has no say)
+          if (lp.thread && this.live.get(lp.thread) === lp) this.showBackground(lp.thread, lp);
+        }
         lp.onEvent?.(ev);
       }
     });
@@ -890,8 +898,9 @@ export class Threads {
       if (lp.dead) return;
       lp.dead = true;
       lp.code = code;
-      // (what it had running in the background ends with it)
-      if (lp.thread && this.all.get(lp.thread)?.meta?.background?.length) this.meta(lp.thread, { background: [] });
+      // (what it had running in the background ends with it, if it was still the thread's run)
+      const cur = lp.thread ? this.live.get(lp.thread) : null;
+      if (lp.thread && (!cur || cur === lp) && this.all.get(lp.thread)?.meta?.background?.length) this.meta(lp.thread, { background: [] });
       clearTimeout(lp.idle);
       for (const [id, l] of this.live) if (l === lp) this.live.delete(id);
       lp.onClose?.(code);
@@ -903,16 +912,17 @@ export class Threads {
     proc.on("close", (code) => gone(code ?? 1));
     return lp;
   }
-  /** Work an agent has going on in the background (a command, a helper agent): kept on its thread while it runs. */
-  backgroundEvent(id, ev) {
-    const t = this.all.get(id);
-    if (!t) return;
-    const list = t.meta.background ?? [];
-    const done = (s) => s && s !== "running" && s !== "pending";
-    if (ev.subtype === "task_started" && ev.is_backgrounded !== false && !list.some((b) => b.id === ev.task_id))
-      this.meta(id, { background: [...list, { id: ev.task_id, what: String(ev.description || ev.task_type || "Working").slice(0, 120), kind: ev.task_type || "", since: now() }].slice(-12) });
-    else if ((ev.subtype === "task_notification" && ev.status !== "running") || (ev.subtype === "task_updated" && done(ev.patch?.status)))
-      list.some((b) => b.id === ev.task_id) && this.meta(id, { background: list.filter((b) => b.id !== ev.task_id) });
+  /** Work an agent has going on in the background (a command, a helper agent), shown on its thread while it runs: the
+   *  newest dozen, of all it has (each task kept by its run until it ends, however many). */
+  showBackground(id, lp) {
+    const list = [...(lp.bg?.values() ?? [])].filter((b) => b.back).map(({ id: k, what, kind, since }) => ({ id: k, what, kind, since }));
+    const shown = list.slice(-12);
+    const now0 = this.all.get(id)?.meta?.background ?? [];
+    if (JSON.stringify(now0) !== JSON.stringify(shown)) this.meta(id, { background: shown, ...(list.length > shown.length ? { backgroundMore: list.length - shown.length } : { backgroundMore: 0 }) });
+  }
+  /** Whether a thread's agent has work going on in the background now. */
+  behind(id) {
+    return (this.live.get(id)?.bg?.size ?? 0) > 0;
   }
   /** This thread's kept agent: the one already running if it was started the same way, a new one if not. */
   kept(id, bin, args, cwd, env) {
@@ -957,6 +967,8 @@ export class Threads {
     const lp = this.live.get(id);
     if (!lp) return;
     this.live.delete(id);
+    // (what it had going in the background goes with it)
+    if (this.all.get(id)?.meta?.background?.length) this.meta(id, { background: [], backgroundMore: 0 });
     clearTimeout(lp.idle);
     lp.onEvent = lp.onClose = null;
     if (lp.dead) return;
@@ -1056,6 +1068,8 @@ export class Threads {
     if (!run) {
       // nothing is running: what was left waiting is dropped, so it cannot start by surprise later
       if (this.get(id).meta.queue.length) this.meta(id, { queue: [] });
+      // (and work it left going in the background is stopped with its run)
+      if (this.live.get(id)?.bg?.size) this.drop(id);
       // a turn still writing what it changed ends as stopped (it has nothing left to stop, but it was asked)
       for (const e of this.reserved.get(id)?.values() ?? []) e.stopped = true;
       return;
