@@ -1142,6 +1142,9 @@ export class Threads {
     // nothing waiting to start may start now (a run waiting for another to end included)
     this.quitting = true;
     this.starting.clear();
+    // (quitting, no Claude of a thread can be counted on to save what its session has cost before Weld has gone: each
+    // session's next run counts from its own first total, written down with everything else below)
+    for (const lp of [...this.live.values(), ...this.letGo]) if (lp.thread && lp.sid) this.costUnsure(lp.thread, lp.sid);
     for (const [id, run] of this.running) {
       run.stopped = true;
       // (an ACP agent ends itself and all it started: waited for below)
