@@ -53,15 +53,18 @@ export default async ({ app, page, out }) => {
   const scoped = await E(() => window.__editor.scope ?? null);
   check("a moment added with its conversation picked too leaves the drawing whole (not stepped into)", scoped !== g3, { scoped, inside, g3 });
   // a board saved with a conversation inside a drawing that plays (as before this) is mended as it opens
-  await E(([g, T]) => { const st = window.__editor.store, d = st.doc, t = d.shapes[T]; st.setDoc({ ...d, shapes: { ...d.shapes, [T]: { ...t, group: g } }, scenes: { ...d.scenes, [g]: { ...d.scenes[g], moments: d.scenes[g].moments.map((m) => ({ ...m, shapes: [...m.shapes, { ...t, group: g }] })) } } }); st.emit(); }, [g3, T]);
+  await E(([g, T]) => { const st = window.__editor.store, d = st.doc, t = d.shapes[T]; st.setDoc({ ...d, shapes: { ...d.shapes, [T]: { ...t, group: g, away: true } }, scenes: { ...d.scenes, [g]: { ...d.scenes[g], moments: d.scenes[g].moments.map((m) => ({ ...m, shapes: [...m.shapes, { ...t, group: g }] })) } } }); st.emit(); }, [g3, T]);
   await wait(2500);
   await page.reload();
   await wait(2500);
-  const mended = await E(([g, T]) => { const d = window.__editor.store.doc; return { group: d.shapes[T]?.group ?? null, inMoments: (d.scenes?.[g]?.moments ?? []).some((m) => m.shapes.some((x) => x.id === T)), scene: !!d.scenes?.[g] }; }, [g3, T]);
-  check("a board saved with its conversation inside a drawing that plays opens mended (the drawing still plays)", mended.group === null && !mended.inMoments && mended.scene, mended);
+  const mended = await E(([g, T]) => { const d = window.__editor.store.doc; return { group: d.shapes[T]?.group ?? null, away: !!d.shapes[T]?.away, inMoments: (d.scenes?.[g]?.moments ?? []).some((m) => m.shapes.some((x) => x.id === T)), scene: !!d.scenes?.[g] }; }, [g3, T]);
+  check("a board saved with its conversation inside a drawing that plays opens mended, on the board as itself (the drawing still plays)", mended.group === null && !mended.away && !mended.inMoments && mended.scene, mended);
   const re3 = weld(["draw", "-"], JSON.stringify({ story: { ...story, replace: `#${g3}` } }));
   const g4 = /= #(\w+)/.exec(re3)?.[1];
   check("…and the agent can redraw it again", !/not done|not connected|failed/.test(re3) && !!g4 && g4 !== g3, re3);
+  // a terminal, page or conversation made while the drawing is stepped into isn't made part of it
+  const madeIn = await E((g) => { const ed = window.__editor; ed.scope = g; const r = ["terminal", "browser", "thread", "rect"].map((k) => [k, ed.fresh(`t${k}`, k, { x: 0, y: 0, w: 300, h: 200 }).group ?? null]); ed.scope = null; return Object.fromEntries(r); }, g4);
+  check("a terminal, page or conversation made while a drawing that plays is stepped into isn't made part of it (a box is)", madeIn.terminal === null && madeIn.browser === null && madeIn.thread === null && madeIn.rect === g4, madeIn);
   // Group is offered only when it would take something in: a whole drawing that plays and a conversation, not
   await E(([g, T]) => { const ed = window.__editor, d = ed.store.doc; ed.store.select([...d.order.filter((id) => d.shapes[id]?.group === g), T]); }, [g4, T]);
   check("Group isn't offered for a drawing that plays and only a conversation beside it", (await E(() => window.__editor.canGroup)) === false);

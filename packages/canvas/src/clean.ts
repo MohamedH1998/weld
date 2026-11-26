@@ -193,7 +193,8 @@ export function cleanDoc(raw: unknown): Doc {
   }
   for (let i = 0; i < list.length; i++) {
     const x = list[i]!;
-    if (LIVE_KINDS.has(x.kind) && x.group && scenes[x.group]) { const { group: _g, ...rest } = x; list[i] = rest as Shape; }
+    // (let go of, it is on the board as itself: not "away" in a moment it no longer belongs to)
+    if (LIVE_KINDS.has(x.kind) && x.group && scenes[x.group]) { const { group: _g, away: _a, ...rest } = x as Shape & { away?: true }; list[i] = rest as Shape; }
   }
   // threads kept off the board: threads only, and none that is also on it
   const away = rec(raw.away) ? cleanShapes(Object.values(raw.away)).filter((s): s is Box => s.kind === "thread" && !list.some((x) => x.id === s.id)) : [];

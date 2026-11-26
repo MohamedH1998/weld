@@ -1137,7 +1137,9 @@ export class Editor {
   }
   private fresh(id: Id, kind: BoxKind, r: Rect): Box {
     const k = KINDS[kind];
-    return { id, kind, ...r, text: "", tone: this.style.tone, fill: k.fills ? this.style.fill : "none", ...(k.level ? { value: k.level.start } : {}), ...this.within() };
+    // (a conversation, terminal or page made while a drawing that plays is stepped into isn't made part of it)
+    const live = kind === "thread" || kind === "terminal" || kind === "browser";
+    return { id, kind, ...r, text: "", tone: this.style.tone, fill: k.fills ? this.style.fill : "none", ...(k.level ? { value: k.level.start } : {}), ...(live ? {} : this.within()) };
   }
   /** What one step of the selected timeline stands for ("100 ms"); empty, its gaps are counted in steps. */
   unit(u: string) {
