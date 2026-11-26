@@ -95,6 +95,27 @@ export default async ({ page, shot }) => {
   await E(() => { const e = window.__editor, d = e.store.doc; e.fit(d.order.filter((x) => ["thread", "rect", "panel"].includes(d.shapes[x]?.kind))); });
   await wait(600);
 
+  // many seen, most out of view: the faint lines cost only what is in view (no full-window work for each one)
+  const cost = await E(async () => {
+    const e = window.__editor, st = e.store, d = st.doc, t = d.order.find((x) => d.shapes[x]?.kind === "thread"), T = d.shapes[t];
+    const far = Array.from({ length: 24 }, (_, i) => ({ id: `f${i}`, kind: "rect", x: 20000 + i * 300, y: 20000, w: 200, h: 80, text: `Far ${i}`, tone: "ink", fill: "tint" }));
+    st.run(() => { st.put(...far); st.patch(t, { live: { ...T.live, sees: [...T.live.sees, ...far.map((f) => `drawing:${f.id}`)] } }); });
+    st.select([t]);
+    st.emit();
+    await new Promise((r) => setTimeout(r, 400));
+    let px = 0, n = 0;
+    const was = CanvasRenderingContext2D.prototype.drawImage;
+    CanvasRenderingContext2D.prototype.drawImage = function (...a) { if (a[0] instanceof HTMLCanvasElement && a.length === 9) { px += a[3] * a[4]; n += 1; } else if (a[0] instanceof HTMLCanvasElement && a.length === 3) { px += a[0].width * a[0].height; n += 1; } return was.apply(this, a); };
+    e.invalidate();
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    CanvasRenderingContext2D.prototype.drawImage = was;
+    const c = document.querySelector("canvas");
+    st.run(() => { st.remove(far.map((f) => f.id)); });
+    st.emit();
+    return { px, n, screen: c.width * c.height, seen: [...(e.overlay.kin?.ids ?? [])].length };
+  });
+  check("with two dozen seen out of view, the faint lines lay down only what is in view", cost.px < cost.screen * 0.25, cost);
+
   // a thread both seen and working in the same folder: the faint line and the dashed edge, both
   const both = async () => E((t2) => { const n = document.querySelector(`[data-live="${t2}"]`), sh = n?.querySelector(":scope > .live-sheet"); return n && { kin: n.classList.contains("is-kin"), peer: n.classList.contains("is-peer"), line: !!n.querySelector(":scope > .live-kin"), dashed: getComputedStyle(sh).outlineStyle, ring: getComputedStyle(sh).boxShadow }; }, t2);
   const b1 = await both();

@@ -1178,11 +1178,23 @@ export function render(
     // all): its outline drawn wide, less the part within `gap` of it and the shape itself, on a sheet of its own
     const around = (r: Rect, b: Box) => {
       if (!gap || typeof document === "undefined") return (own(ctx, r, b), ctx.stroke());
+      // (only the patch of the sheet the line can reach is cleared and laid down: the shape's box, the line's width beyond
+      // it, turned as it is turned and in the canvas's own pixels; a shape out of view costs nothing)
+      const m = ctx.getTransform(), pad = gap + width + 2;
+      const xs: number[] = [], ys: number[] = [];
+      for (const [px, py] of [[r.x - pad, r.y - pad], [r.x + r.w + pad, r.y - pad], [r.x - pad, r.y + r.h + pad], [r.x + r.w + pad, r.y + r.h + pad]] as const) (xs.push(m.a * px + m.c * py + m.e), ys.push(m.b * px + m.d * py + m.f));
+      const W = ctx.canvas.width, H = ctx.canvas.height;
+      const x0 = Math.max(0, Math.floor(Math.min(...xs))), y0 = Math.max(0, Math.floor(Math.min(...ys))), x1 = Math.min(W, Math.ceil(Math.max(...xs))), y1 = Math.min(H, Math.ceil(Math.max(...ys)));
+      if (x1 <= x0 || y1 <= y0) return;
       const c = (ringSheet ??= document.createElement("canvas")), k = c.getContext("2d")!;
-      if (c.width !== ctx.canvas.width || c.height !== ctx.canvas.height) (c.width = ctx.canvas.width), (c.height = ctx.canvas.height);
+      if (c.width < W || c.height < H) (c.width = W), (c.height = H);
       k.setTransform(1, 0, 0, 1, 0, 0);
-      k.clearRect(0, 0, c.width, c.height);
-      k.setTransform(ctx.getTransform());
+      k.clearRect(x0, y0, x1 - x0, y1 - y0);
+      k.save();
+      k.beginPath();
+      k.rect(x0, y0, x1 - x0, y1 - y0);
+      k.clip();
+      k.setTransform(m);
       own(k, r, b);
       k.lineJoin = "round";
       k.strokeStyle = color;
@@ -1193,9 +1205,10 @@ export function render(
       k.stroke();
       k.fill();
       k.globalCompositeOperation = "source-over";
+      k.restore();
       ctx.save();
       ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.drawImage(c, 0, 0);
+      ctx.drawImage(c, x0, y0, x1 - x0, y1 - y0, x0, y0, x1 - x0, y1 - y0);
       ctx.restore();
     };
     ctx.lineWidth = width;
