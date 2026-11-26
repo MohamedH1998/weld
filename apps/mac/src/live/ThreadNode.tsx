@@ -153,7 +153,8 @@ export function ThreadNode({ box, editor, active, far }: NodeProps) {
 
   // (its turn over, work it left going in the background still counts as working)
   const behind = running ? [] : meta?.background ?? [];
-  const state: "working" | "ready" | "error" | "quiet" = meta?.asking ? "ready" : running || behind.length ? "working" : meta?.error ? "error" : meta?.unread ? "ready" : "quiet";
+  // (a turn that failed is said first; the strip still shows what goes on in the background)
+  const state: "working" | "ready" | "error" | "quiet" = meta?.asking ? "ready" : running ? "working" : meta?.error ? "error" : behind.length ? "working" : meta?.unread ? "ready" : "quiet";
   const title = box.text || meta?.title || "New thread";
   // (read from the bar, a thread kept off the board has no card to fold or take off)
   const away = !!awayBox(editor, box.id);

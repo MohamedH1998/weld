@@ -25,7 +25,8 @@ function useLive(editor: Editor) {
     if (b.kind === "thread") {
       const m = threads.get(b.id)?.meta;
       // waiting on the person to allow something is waiting for them, before it is working
-      return m?.asking ? "ready" : m?.status === "running" || m?.background?.length ? "working" : m?.error ? "error" : m?.unread ? "ready" : "quiet";
+      // (a turn that failed is said before work still going on in the background from before it)
+      return m?.asking ? "ready" : m?.status === "running" ? "working" : m?.error ? "error" : m?.background?.length ? "working" : m?.unread ? "ready" : "quiet";
     }
     return facts.get(b.id)?.busy ? "working" : "quiet";
   };
@@ -148,7 +149,7 @@ function RunningRow({ editor, box, state, onHover, go }: { editor: Editor; box: 
   }, [state]);
   const meta = t?.meta;
   // (its turn over, working in the background: what, and for how long)
-  const behind = meta?.status !== "running" ? meta?.background ?? [] : [];
+  const behind = meta?.status !== "running" && !meta?.error ? meta?.background ?? [] : [];
   const doing = meta?.asking ? "Waiting for you" : behind.length ? `In the background: ${behind.map((b) => b.what).join(", ")}` : state === "working" ? doingNow(t?.items ?? [], true, meta?.cwd) : state === "error" ? "Stopped" : "Ready for you";
   const from = behind.length ? meta?.backgroundSince ?? Math.min(...behind.map((b) => b.since)) : meta?.startedAt;
   const secs = from && state === "working" ? Math.max(0, Math.round((Date.now() - from) / 1000)) : null;

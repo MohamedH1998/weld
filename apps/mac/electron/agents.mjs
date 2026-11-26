@@ -236,6 +236,8 @@ export class Threads {
     // what a thread had running in the background stopped with the app
     if (t.meta.services) t.meta.services = t.meta.services.map((s) => ({ ...s, alive: false }));
     t.meta.background = [];
+    t.meta.backgroundMore = 0;
+    t.meta.backgroundSince = null;
     for (const it of t.items) if (it.kind === "ask" && it.status === "waiting") it.status = "stopped";
     this.all.set(id, t);
     return t;
@@ -879,9 +881,12 @@ export class Threads {
         if (ev.type === "system" && typeof ev.task_id === "string") {
           const done = (x) => x && x !== "running" && x !== "pending";
           lp.bg ??= new Map();
-          if (ev.subtype === "task_started") lp.bg.set(ev.task_id, { id: ev.task_id, what: String(ev.description || ev.task_type || "Working").slice(0, 120), kind: ev.task_type || "", since: now(), back: ev.is_backgrounded !== false });
-          else if (ev.subtype === "task_updated" && ev.patch?.is_backgrounded === true && lp.bg.has(ev.task_id)) lp.bg.get(ev.task_id).back = true;
-          if ((ev.subtype === "task_notification" && done(ev.status)) || (ev.subtype === "task_updated" && done(ev.patch?.status))) lp.bg.delete(ev.task_id);
+          // (its own housekeeping (ambient) isn't work of the person's: not counted, not shown; and an ending is of the run
+          // it names, when it names one: a helper resumed under the same task id is a new run, not ended by the old's)
+          const mine = (k) => { const b = lp.bg.get(k); return !!b && (!ev.run_id || !b.run || b.run === ev.run_id); };
+          if (ev.subtype === "task_started" && ev.ambient !== true) lp.bg.set(ev.task_id, { id: ev.task_id, run: ev.run_id || "", what: String(ev.description || ev.task_type || "Working").slice(0, 120), kind: ev.task_type || "", since: now(), back: ev.is_backgrounded !== false });
+          else if (ev.subtype === "task_updated" && ev.patch?.is_backgrounded === true && mine(ev.task_id)) lp.bg.get(ev.task_id).back = true;
+          if (((ev.subtype === "task_notification" && done(ev.status)) || (ev.subtype === "task_updated" && done(ev.patch?.status))) && mine(ev.task_id)) lp.bg.delete(ev.task_id);
           lp.tasks = lp.bg.size;
           // …and shown on its thread, each by what the agent called it, so work going on after its turn is seen to be
           // (only by the run that is the thread's now: one let go, still finishing, has no say)
@@ -900,7 +905,7 @@ export class Threads {
       lp.code = code;
       // (what it had running in the background ends with it, if it was still the thread's run)
       const cur = lp.thread ? this.live.get(lp.thread) : null;
-      if (lp.thread && (!cur || cur === lp) && this.all.get(lp.thread)?.meta?.background?.length) this.meta(lp.thread, { background: [] });
+      if (lp.thread && (!cur || cur === lp) && this.all.get(lp.thread)?.meta?.background?.length) this.meta(lp.thread, { background: [], backgroundMore: 0, backgroundSince: null });
       clearTimeout(lp.idle);
       for (const [id, l] of this.live) if (l === lp) this.live.delete(id);
       lp.onClose?.(code);

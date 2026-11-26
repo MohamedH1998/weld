@@ -102,4 +102,21 @@ export default async ({ app, page, shot }) => {
   await E((away) => window.weld.thread.onBoard([away]), away);
   const gone = await until(async () => (!(await get()).meta.background?.length ? true : null), 8000);
   check("a thread no longer on the board has its background work stopped", !!gone);
+
+  // Claude's own housekeeping (ambient) isn't work of the person's: not shown, not counted
+  await E((T) => window.weld.thread.send(T, { text: "watch bgamb:20" }), T);
+  await wait(2000);
+  // (this thread's: another, in the bar, may still be busy with its own)
+  const amb = { bg: (await get()).meta.background ?? [], dot: await E((T) => document.querySelector(`[data-live="${T}"] .live-dot`)?.getAttribute("data-state"), T) };
+  check("Claude's own housekeeping isn't shown or counted as work", !amb.bg.length && amb.dot !== "working", amb);
+  // a helper resumed under the same task id: the old run's late ending doesn't end the new one
+  await E((T) => window.weld.thread.send(T, { text: "review bgreuse" }), T);
+  await wait(3500);
+  const reused = (await get()).meta.background ?? [];
+  check("a helper resumed under its task id stays shown when its old run's ending arrives late", reused.some((b) => /resumed/.test(b.what)), reused.map((b) => b.what));
+  // a turn that fails while older work goes on: the failure is said first, the work still shown on the card
+  await E((T) => window.weld.thread.send(T, { text: "this will fail" }), T);
+  await wait(1500);
+  const failed = await E((T) => ({ dot: document.querySelector(`[data-live="${T}"] .live-dot`)?.getAttribute("data-state"), strip: document.querySelector(`[data-live="${T}"] .thread-behind`)?.textContent ?? null, pill: document.querySelector('.top-pill[data-state="error"]')?.textContent ?? null }), T);
+  check("a failed turn is said first (stopped), with the work still going on shown on the card", failed.dot === "error" && /resumed/.test(failed.strip ?? ""), failed);
 };

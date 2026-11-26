@@ -210,7 +210,7 @@ export const Bar = memo(function Bar({ editor, dark }: { editor: Editor; dark: b
           live.length > 0 && (
             <div className="ask-capsules">
               {live.slice(0, 3).map(({ b, t }) => (
-                <Capsule key={b.id} box={b} items={t?.items ?? []} behind={t?.meta.status === "running" ? undefined : t?.meta.background} running={t?.meta.status === "running" || openings.has(b.id)} error={!!t?.meta.error} title={b.text || t?.meta.title || "New thread"} cwd={t?.meta.cwd} onOpen={() => setReading(b.id)} />
+                <Capsule key={b.id} box={b} items={t?.items ?? []} behind={t?.meta.status === "running" || t?.meta.error ? undefined : t?.meta.background} running={t?.meta.status === "running" || openings.has(b.id)} error={!!t?.meta.error} title={b.text || t?.meta.title || "New thread"} cwd={t?.meta.cwd} onOpen={() => setReading(b.id)} />
               ))}
               {live.length > 3 && <span className="ask-more">+{live.length - 3}</span>}
             </div>
