@@ -440,8 +440,8 @@ export function CanvasView() {
       if (e.target instanceof HTMLElement && e.target.closest("[data-live], .palette, .settings, .smith-bubble")) return;
       // an open menu owns the keyboard (one that is already closing does not)
       if (e.target instanceof HTMLElement && e.target.closest('[role="menu"]:not(.ui-out)')) return;
-      // (and Escape with a menu open closes the menu, and does nothing else to the board)
-      if (e.key === "Escape" && document.querySelector('[role="menu"]:not(.ui-out)')) return;
+      // (and Escape with the bar's list of more threads open closes the list, and does nothing else to the board)
+      if (e.key === "Escape" && document.querySelector(".ask-more-list")) return;
       if (e.key === "Escape") {
         setMenu(null);
         // otherwise Escape works from anywhere, even with a control focused
