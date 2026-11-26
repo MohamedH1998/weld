@@ -723,6 +723,9 @@ export const emptyOverlay = (): Overlay => ({
 export const HANDLE = 8;
 export const STUB_OUT = 20;
 /** The four quick-create stubs of a box, in world points: right, bottom, left, top. */
+/** A sheet the faint line round a shape is cut out on, kept from one drawing to the next. */
+let ringSheet: HTMLCanvasElement | undefined;
+
 export function stubPoints(b: Rect, z: number): Pt[] {
   const o = STUB_OUT / z;
   return [
@@ -1170,14 +1173,30 @@ export function render(
 
   // (`gap`: drawn that far outside the shape, clear of its own edge, so a thin line still reads as the shape's)
   const outline = (s: Shape, width: number, color: string, gap = 0) => {
-    // the shape's own outline; or, `gap` away from it, a plain box or ring round it (a notched or dipped shape's
-    // details, worked out again for a larger shape, would no longer be its own)
+    const own = (c: CanvasRenderingContext2D, r: Rect, b: Box) => kindPath(c, { ...r, kind: b.kind, notch: b.notch, head: b.head, dips: b.dips, fine: b.fine, text: b.text, levels: b.levels }, 8 * z);
+    // the shape's own outline; or a line `gap` away from it all round, following its own shape (corners, notches and
+    // all): its outline drawn wide, less the part within `gap` of it and the shape itself, on a sheet of its own
     const around = (r: Rect, b: Box) => {
-      if (!gap) return kindPath(ctx, { ...r, kind: b.kind, notch: b.notch, head: b.head, dips: b.dips, fine: b.fine, text: b.text, levels: b.levels }, 8 * z);
-      const o = { x: r.x - gap, y: r.y - gap, w: r.w + gap * 2, h: r.h + gap * 2 };
-      ctx.beginPath();
-      if (b.kind === "ellipse") ctx.ellipse(o.x + o.w / 2, o.y + o.h / 2, o.w / 2, o.h / 2, 0, 0, Math.PI * 2);
-      else ctx.roundRect(o.x, o.y, o.w, o.h, (b.kind === "pill" ? Math.min(r.w, r.h) / 2 : 8 * z) + gap);
+      if (!gap || typeof document === "undefined") return (own(ctx, r, b), ctx.stroke());
+      const c = (ringSheet ??= document.createElement("canvas")), k = c.getContext("2d")!;
+      if (c.width !== ctx.canvas.width || c.height !== ctx.canvas.height) (c.width = ctx.canvas.width), (c.height = ctx.canvas.height);
+      k.setTransform(1, 0, 0, 1, 0, 0);
+      k.clearRect(0, 0, c.width, c.height);
+      k.setTransform(ctx.getTransform());
+      own(k, r, b);
+      k.lineJoin = "round";
+      k.strokeStyle = color;
+      k.lineWidth = (gap + width / 2) * 2;
+      k.stroke();
+      k.globalCompositeOperation = "destination-out";
+      k.lineWidth = (gap - width / 2) * 2;
+      k.stroke();
+      k.fill();
+      k.globalCompositeOperation = "source-over";
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.drawImage(c, 0, 0);
+      ctx.restore();
     };
     ctx.lineWidth = width;
     ctx.strokeStyle = color;
@@ -1187,15 +1206,11 @@ export function render(
       ctx.translate(cx, cy);
       ctx.rotate(s.rot);
       ctx.translate(-cx, -cy);
-      if (isBox(s)) {
-        around(r, s);
-        ctx.stroke();
-      } else ctx.strokeRect(r.x - 4, r.y - 2, r.w + 8, r.h + 4);
+      if (isBox(s)) around(r, s);
+      else ctx.strokeRect(r.x - 4, r.y - 2, r.w + 8, r.h + 4);
       ctx.restore();
-    } else if (isBox(s)) {
-      around(sr(s), s);
-      ctx.stroke();
-    } else if (isText(s)) {
+    } else if (isBox(s)) around(sr(s), s);
+    else if (isText(s)) {
       const r = sr(s);
       ctx.strokeRect(Math.round(r.x - 4) + 0.5, Math.round(r.y - 2) + 0.5, Math.round(r.w + 8), Math.round(r.h + 4));
     } else {
