@@ -92,6 +92,8 @@ export default async ({ app, page, shot }) => {
   // (its answer not yet read: for the person, the work behind it notwithstanding)
   await wait(500);
   const unreadNow = await E(async (id) => ({ unread: !!(await window.weld.thread.get(id)).meta.unread, pills: [...document.querySelectorAll(".top-pill")].map((p) => `${p.getAttribute("data-state")}:${p.textContent}`), waiting: (await window.weld.boards.list()).find((b) => b.current)?.waiting ?? null }), away);
+  const capUnread = await E(() => { const c = [...document.querySelectorAll(".ask-capsule")].find((x) => /deploy/.test(x.textContent)); return c && { text: c.textContent, state: c.getAttribute("data-state") }; });
+  check("…and its capsule reads as done, not as working behind", !!capUnread && capUnread.state === "done" && !/In the background/.test(capUnread.text), capUnread);
   check("an answer not yet read is still offered as for you while work goes on behind it (corner, boards)", unreadNow.unread && unreadNow.pills.some((p) => p.startsWith("ready:")) && unreadNow.waiting >= 1, unreadNow);
   await E((id) => window.weld.thread.seen(id), away);
   await wait(500);

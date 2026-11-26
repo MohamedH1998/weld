@@ -150,7 +150,8 @@ function RunningRow({ editor, box, state, onHover, go }: { editor: Editor; box: 
   }, [state]);
   const meta = t?.meta;
   // (its turn over, working in the background: what, and for how long)
-  const behind = meta?.status !== "running" && !meta?.error ? meta?.background ?? [] : [];
+  // (said only when nothing comes before it: a failed turn, or an answer not yet read)
+  const behind = meta?.status !== "running" && !meta?.error && !meta?.unread ? meta?.background ?? [] : [];
   const doing = meta?.asking ? "Waiting for you" : behind.length ? `In the background: ${behind.map((b) => b.what).join(", ")}` : state === "working" ? doingNow(t?.items ?? [], true, meta?.cwd) : state === "error" ? "Stopped" : "Ready for you";
   const from = behind.length ? meta?.backgroundSince ?? Math.min(...behind.map((b) => b.since)) : meta?.startedAt;
   const secs = from && state === "working" ? Math.max(0, Math.round((Date.now() - from) / 1000)) : null;
