@@ -1315,31 +1315,40 @@ function unionOf(moments: { shapes: Shape[] }[]): Rect {
 // ── typing ──────────────────────────────────────────────────────────
 /** What a shape's words editor held at one moment, and where its caret or selection was (in characters of its words). */
 type Snap = { html: string; start: number; end: number };
-const textNodes = (el: HTMLElement) => {
-  const out: Text[] = [], w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
-  for (let n = w.nextNode(); n; n = w.nextNode()) out.push(n as Text);
+// (a line break counts as one character, so the end of one line and the start of the next are different places)
+const spots = (el: HTMLElement) => {
+  const out: (Text | HTMLBRElement)[] = [], w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT);
+  for (let n = w.nextNode(); n; n = w.nextNode()) if (n instanceof Text || n instanceof HTMLBRElement) out.push(n);
   return out;
 };
 function caretOf(el: HTMLElement): { start: number; end: number } {
   const sel = window.getSelection();
-  if (!sel?.rangeCount || !el.contains(sel.anchorNode)) return { start: el.textContent?.length ?? 0, end: el.textContent?.length ?? 0 };
-  const r = sel.getRangeAt(0), at = (node: Node, off: number) => {
+  const at = (node: Node, off: number) => {
     const pre = document.createRange();
     pre.selectNodeContents(el);
     pre.setEnd(node, off);
-    return pre.toString().length;
+    const f = pre.cloneContents();
+    return (f.textContent?.length ?? 0) + f.querySelectorAll("br").length;
   };
+  if (!sel?.rangeCount || !el.contains(sel.anchorNode)) { const n = at(el, el.childNodes.length); return { start: n, end: n }; }
+  const r = sel.getRangeAt(0);
   return { start: at(r.startContainer, r.startOffset), end: at(r.endContainer, r.endOffset) };
 }
 function setCaret(el: HTMLElement, start: number, end: number) {
-  const range = document.createRange(), nodes = textNodes(el);
+  const range = document.createRange(), nodes = spots(el);
   const place = (n: number, edge: "start" | "end") => {
+    const put = (node: Node, off: number) => (edge === "start" ? range.setStart(node, off) : range.setEnd(node, off));
     let left = n;
     for (const t of nodes) {
-      if (left <= t.length) return edge === "start" ? range.setStart(t, left) : range.setEnd(t, left);
-      left -= t.length;
+      if (t instanceof Text) {
+        if (left <= t.length) return put(t, left);
+        left -= t.length;
+      } else {
+        if (left === 0) return put(t.parentNode!, [...t.parentNode!.childNodes].indexOf(t));
+        left -= 1;
+      }
     }
-    return edge === "start" ? range.setStart(el, el.childNodes.length) : range.setEnd(el, el.childNodes.length);
+    return put(el, el.childNodes.length);
   };
   place(start, "start");
   place(end, "end");
@@ -1357,7 +1366,7 @@ function TextEditor({ editor, shape, dark }: { editor: Editor; shape: Shape; dar
   // its own undo (the page's is shared by every field, a draft in the bar included): what it held before each step, kept
   // exactly as it was (its words as typed, its line breaks) with where the caret was, a step being a burst of typing, a
   // paste, a cut, a move by dragging, typing over a selection, or one word chosen with an input method
-  const hist = useRef({ past: [] as Snap[], future: [] as Snap[], at: 0, composing: false, moving: false, pending: null as null | { snap: Snap; fresh: boolean; whole: boolean } });
+  const hist = useRef({ past: [] as Snap[], future: [] as Snap[], at: 0, composing: false, moving: false, pending: null as null | { snap: Snap; fresh: boolean; whole: boolean }, after: null as null | Snap });
   // typed in the faces it is set in
   const own = shape.face && FACE_LIST.some((f) => f.id === shape.face) ? faceFonts(shape.face as Face) : { font: FONT, mono: MONO };
 
@@ -1405,6 +1414,8 @@ function TextEditor({ editor, shape, dark }: { editor: Editor; shape: Shape; dar
       if (p.fresh || t - h.at > 600 || !h.past.length) h.past.push(p.snap);
       h.future = [];
       h.at = p.whole ? 0 : t;
+      // (as it stands after the change: where Redo puts the caret back, and where typing that goes on would be)
+      h.after = now();
     };
     const before = (e: InputEvent) => {
       if (h.composing || e.isComposing || e.inputType.startsWith("history")) return;
@@ -1412,7 +1423,10 @@ function TextEditor({ editor, shape, dark }: { editor: Editor; shape: Shape; dar
       if (e.inputType === "insertFromDrop" && h.moving) { h.moving = false; h.pending = { snap: h.past.at(-1) ?? now(), fresh: false, whole: true }; return; }
       h.moving = e.inputType === "deleteByDrag";
       const whole = /Paste|Drop|Cut|Replacement/.test(e.inputType);
-      h.pending = { snap: now(), fresh: whole || h.moving || window.getSelection()?.isCollapsed === false, whole };
+      const snap = now();
+      // (typing somewhere else than where the last typing ended is a step of its own)
+      const moved = !!h.after && (snap.start !== h.after.start || snap.end !== h.after.end || snap.html !== h.after.html);
+      h.pending = { snap, fresh: whole || h.moving || moved || snap.start !== snap.end, whole };
     };
     const input = () => { if (!h.composing) kept(); };
     const start = () => { h.pending = { snap: now(), fresh: true, whole: true }; h.composing = true; };
@@ -1423,10 +1437,12 @@ function TextEditor({ editor, shape, dark }: { editor: Editor; shape: Shape; dar
       const from = back ? h.past : h.future, to = back ? h.future : h.past;
       const was = from.pop();
       if (was === undefined) return;
-      to.push(now());
+      const here = now();
+      to.push(h.after && h.after.html === here.html ? h.after : here);
       el.innerHTML = was.html;
       setCaret(el, was.start, was.end);
       h.at = 0;
+      h.after = null;
     };
     el.addEventListener("beforeinput", before);
     el.addEventListener("input", input);

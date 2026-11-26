@@ -135,9 +135,13 @@ export default async ({ app, page, shot }) => {
   // (the caret at the end: the words open selected)
   await E(() => { const r = document.createRange(); r.selectNodeContents(document.activeElement); r.collapse(false); getSelection().removeAllRanges(); getSelection().addRange(r); });
   await page.keyboard.type(" v2");
-  const clip = await app.evaluate(({ clipboard }) => { const was = clipboard.readText(); clipboard.writeText(" (Acme)"); return was; });
-  // (Paste, as the menu's own Paste does it)
-  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.paste());
+  // (a paste as the page sends one: the person's own clipboard is never touched by a check)
+  await E(() => {
+    const el = document.activeElement, t = el.firstChild;
+    el.dispatchEvent(new InputEvent("beforeinput", { inputType: "insertFromPaste", bubbles: true, cancelable: true }));
+    t.data += " (Acme)";
+    el.dispatchEvent(new InputEvent("input", { inputType: "insertFromPaste", bubbles: true }));
+  });
   await wait(150);
   check("a paste goes in", (await state()).text === "Billing v2 (Acme)", await state());
   await menu("Undo");
@@ -153,7 +157,6 @@ export default async ({ app, page, shot }) => {
   await menu("Undo");
   await wait(200);
   check("…and Undo takes it back whole, never half-composed", (await state()).text === "Billing v2", await state());
-  await app.evaluate(({ clipboard }, was) => clipboard.writeText(was), clip);
 
   // undo puts the caret back where it was: a correction typed after it lands in the same place
   const caret = (n) => E((n) => { const el = document.activeElement, t = el.firstChild, r = document.createRange(); r.setStart(t, n); r.collapse(true); getSelection().removeAllRanges(); getSelection().addRange(r); }, n);
@@ -174,6 +177,17 @@ export default async ({ app, page, shot }) => {
   await menu("Redo");
   await wait(150);
   check("…and a key that changes nothing keeps Redo", (await state()).text === "BillingY v2", await state());
+  // moving the caret ends a burst: typing on elsewhere is a step of its own, even straight away
+  await page.keyboard.type("X");
+  await page.keyboard.press("ArrowLeft");
+  await page.keyboard.press("ArrowLeft");
+  await page.keyboard.type("W");
+  await wait(100);
+  await menu("Undo");
+  await wait(150);
+  check("typing after moving the caret undoes on its own (Redo left the caret after the Y)", (await state()).text === "BillingYX v2", await state());
+  await menu("Undo");
+  await wait(150);
   // words dragged to another place in the same name come back with one Undo (as the page sends a drag: out, then in)
   await E(() => {
     const el = document.activeElement, t = el.firstChild;
@@ -191,6 +205,21 @@ export default async ({ app, page, shot }) => {
   await wait(200);
   const tb = await state();
   check("the toolbar's Undo takes back the words' typing, the edit still open", tb.text === "BillingY v2" && tb.editing === "r2", tb);
+  await page.keyboard.press("Escape");
+  await wait(300);
+
+  // on a name of two lines, the start of the second line is its own place: Undo puts the caret back there
+  await E(() => { const st = window.__editor.store; st.run(() => st.put({ id: "r3", kind: "rect", x: 700, y: 0, w: 220, h: 120, text: "Acme\nAPI", tone: "ink", fill: "tint" })); st.emit(); window.__editor.edit("r3"); });
+  await wait(400);
+  await E(() => { const el = document.activeElement, br = el.querySelector("br"), r = document.createRange(); r.setStart(el, [...el.childNodes].indexOf(br) + 1); r.collapse(true); getSelection().removeAllRanges(); getSelection().addRange(r); });
+  await page.keyboard.type("X");
+  await wait(100);
+  await menu("Undo");
+  await wait(150);
+  await page.keyboard.type("Y");
+  await wait(100);
+  const two = await E(() => document.activeElement.innerText);
+  check("after Undo on a second line, typing lands at its start", two === "Acme\nYAPI", two);
   await page.keyboard.press("Escape");
   await wait(300);
 
