@@ -1137,7 +1137,11 @@ export class Editor {
   }
   private fresh(id: Id, kind: BoxKind, r: Rect): Box {
     const k = KINDS[kind];
-    return { id, kind, ...r, text: "", tone: this.style.tone, fill: k.fills ? this.style.fill : "none", ...(k.level ? { value: k.level.start } : {}), ...this.within() };
+    // (a conversation, terminal or page made while a drawing that plays is stepped into isn't made part of it; one made in
+    // a group that stays still is, as before)
+    const live = kind === "thread" || kind === "terminal" || kind === "browser";
+    const out = live && !!this.scope && !!this.store.doc.scenes?.[this.scope];
+    return { id, kind, ...r, text: "", tone: this.style.tone, fill: k.fills ? this.style.fill : "none", ...(k.level ? { value: k.level.start } : {}), ...(out ? {} : this.within()) };
   }
   /** What one step of the selected timeline stands for ("100 ms"); empty, its gaps are counted in steps. */
   unit(u: string) {
@@ -1472,7 +1476,8 @@ export class Editor {
       const pts = arrowPath(doc, sh);
       const re = (e: End, tip: Pt | undefined): End => {
         const to = e.bind ? map.get(e.bind.id) : undefined;
-        if (e.bind && to) return { ...e, bind: { ...e.bind, id: to } };
+        // (its place kept with it, moved as the copy is: a moment that keeps it keeps where it is)
+        if (e.bind && to) return { ...e, x: e.x + dx, y: e.y + dy, bind: { ...e.bind, id: to } };
         const at = e.bind && tip ? tip : endPoint(doc, e);
         return { x: at.x + dx, y: at.y + dy };
       };
@@ -1566,8 +1571,19 @@ export class Editor {
       out[g1] = { at: sc.at, moments: sc.moments.map((m) => { const here = new Set(m.shapes.map((x) => x.id)); return { ...m, id: newId(), shapes: m.shapes.map((sh): Shape => {
         const o = shifted({ ...sh, id: fresh(sh.id), group: g1 }, c.dx + dx, c.dy + dy);
         if (!isArrow(o)) return unowned(o as Box);
-        // a wire joined to something outside its group lets go, as the copy on the board does
-        const re = (e: End): End => (e.bind ? (here.has(e.bind.id) ? { ...e, bind: { ...e.bind, id: fresh(e.bind.id) } } : { x: e.x, y: e.y }) : e);
+        // a wire joined to something outside its group lets go, as the copy on the board does, unless that was copied with
+        // it (a conversation it is wired to, which is never in a moment): it is joined to the copy
+        // (an end joined to such a card, which no moment holds, is on the card where it is now, the copy if it is on the
+        // board yet, never where this moment last saw it; such cards are never turned)
+        const re = (e: End): End => {
+          if (!e.bind) return e;
+          const to = fresh(e.bind.id);
+          if (here.has(e.bind.id)) return { ...e, bind: { ...e.bind, id: to } };
+          if (!c.map.has(e.bind.id)) return { x: e.x, y: e.y };
+          const copy = this.store.doc.shapes[to], src = this.store.doc.shapes[e.bind.id];
+          const t = copy && isBox(copy) ? copy : src && isBox(src) ? shifted(src, c.dx + dx, c.dy + dy) : null;
+          return { ...(t && isBox(t) ? { x: t.x + e.bind.ax * t.w, y: t.y + e.bind.ay * t.h } : { x: e.x, y: e.y }), bind: { ...e.bind, id: to } };
+        };
         return { ...o, a: re(o.a), b: re(o.b) };
       }) }; }) };
     }
@@ -1638,9 +1654,12 @@ export class Editor {
         // the clipboard is outside the board: only well-formed shapes come in, and unless they are the person's own
         // copy, nothing in them runs, opens a local file or speaks for a thread by being put down
         const ours = text === this.copied;
-        const shapes = ours ? cleanShapes(data.shapes) : fromOutside(cleanShapes(data.shapes));
-        if (!shapes.length) return;
-        const scenes = cleanDoc({ shapes: {}, order: [], scenes: data.scenes }).scenes ?? {};
+        const raw = ours ? cleanShapes(data.shapes) : fromOutside(cleanShapes(data.shapes));
+        if (!raw.length) return;
+        // (cleaned together, as a board is opened: a moment's wire may be joined to a shape that comes with it, and a
+        // conversation, terminal or page copied inside a drawing that plays (as before) comes out of it, on show)
+        const together = cleanDoc({ shapes: Object.fromEntries(raw.map((x) => [x.id, x])), order: raw.map((x) => x.id), scenes: data.scenes });
+        const shapes = together.order.map((id) => together.shapes[id]!), scenes = together.scenes ?? {};
         this.clip = shapes;
         this.clipScenes = ours ? scenes : scenesFromOutside(scenes);
         return this.paste(at);
@@ -1742,7 +1761,8 @@ export class Editor {
   get sceneGroup(): Id | null {
     const scenes = this.store.doc.scenes;
     if (!scenes) return null;
-    const groups = new Set(this.selected().map((sh) => sh.group ?? ""));
+    // (a conversation, terminal or page picked with it is never part of a drawing: it doesn't count either way)
+    const groups = new Set(this.selected().filter((sh) => !isLive(sh)).map((sh) => sh.group ?? ""));
     // (shapes picked with it that belong to nothing are its company, not another group: its moments still show)
     const moving = [...groups].filter((x) => x && scenes[x]), others = [...groups].filter((x) => x && !scenes[x]);
     const g = groups.size === 1 ? [...groups][0]! : moving.length === 1 && !others.length ? moving[0]! : "";
@@ -1751,7 +1771,8 @@ export class Editor {
   }
   /** Shapes picked along with a moving group that belong to nothing join it, alike in every moment (part of one change). */
   private join(g: Id) {
-    const s = this.store, sc = s.doc.scenes?.[g], loose = this.selected().filter((sh) => !sh.group);
+    // (a conversation, terminal or page picked along with it stays out: it is never a part of a drawing that plays)
+    const s = this.store, sc = s.doc.scenes?.[g], loose = this.selected().filter((sh) => !sh.group && !isLive(sh));
     if (!sc || !loose.length) return;
     const joined = loose.map((sh) => ({ ...sh, group: g }));
     s.put(...joined);
@@ -1784,19 +1805,31 @@ export class Editor {
   moments(g: Id): Moment[] {
     return this.store.doc.scenes?.[g] ? this.synced(this.store.doc, g).moments : [];
   }
+  /** Whether what is selected can be made to move (a conversation, terminal or page can't). */
+  get canAnimate() {
+    return this.selected().some((sh) => !isLive(sh));
+  }
   /** Make what is selected move: it becomes one group, and gains a second moment to change. */
   animate() {
-    if (this.g.type !== "idle" || !this.store.sel.size) return;
+    // (a conversation, terminal or page picked along with it isn't made to move: it stays as it is)
+    const parts = this.selected().filter((sh) => !isLive(sh));
+    if (this.g.type !== "idle" || !this.canAnimate) return;
     const s = this.store;
     this.stop();
     s.run(() => {
-      const groups = new Set(this.selected().map((sh) => sh.group ?? ""));
+      const groups = new Set(parts.map((sh) => sh.group ?? ""));
       let g = groups.size === 1 ? [...groups][0]! : "";
       if (!g) {
         g = newId();
-        s.put(...this.selected().map((sh) => ({ ...sh, group: g })));
+        s.put(...parts.map((sh) => ({ ...sh, group: g })));
       }
+      // (a conversation, terminal or page picked along leaves whatever group it was in, as itself)
+      const stray = this.selected().filter((sh) => isLive(sh) && sh.group && sh.group !== g);
+      if (stray.length) s.put(...stray.map((sh) => { const o = { ...sh }; delete o.group; return o; }));
       if (s.doc.scenes?.[g]) return;
+      // (a group that begins to move lets go of a conversation, terminal or page in it: they stay as they are)
+      const held = this.members(s.doc, g).filter((sh) => isLive(sh));
+      if (held.length) s.put(...held.map((sh) => { const o = { ...sh }; delete o.group; return o; }));
       const shapes = this.members(s.doc, g);
       // two moments to begin with, alike, the second on show and stepped into: whatever part is changed now is what will move
       s.select([]);
@@ -1846,7 +1879,8 @@ export class Editor {
       const moments = [...sc.moments.slice(0, sc.at + 1), { id: newId(), shapes: cur.shapes, over: OVER, hold: HOLD }, ...sc.moments.slice(sc.at + 1)];
       s.setDoc({ ...s.doc, scenes: { ...s.doc.scenes, [g]: { moments, at: sc.at + 1 } } });
     });
-    if (this.store.sel.size !== this.members(s.doc, g).length) this.enter(g);
+    const ids = new Set(this.members(s.doc, g).map((sh) => sh.id));
+    if ([...this.store.sel].filter((id) => ids.has(id)).length !== ids.size) this.enter(g);
     this.invalidate();
   }
   removeMoment(g: Id, i: number) {
@@ -1906,8 +1940,9 @@ export class Editor {
   /** Take what is selected out of the moment on show, or bring it back: it stays in the others. */
   hide(on: boolean) {
     const s = this.store, g = this.sceneGroup;
-    // what sits inside a panel is hidden and shown with it
-    const set = this.withinside(s.sel);
+    // what sits inside a panel is hidden and shown with it (a conversation, terminal or page picked along, which is no
+    // part of the drawing, is never hidden in its moments, nor are the wires to it on that account)
+    const set = this.withinside(new Set([...s.sel].filter((id) => !isLive(s.doc.shapes[id]) || (!!g && s.doc.shapes[id]?.group === g))));
     // a wire joined to a thing goes when the thing goes (it would end in thin air), and comes back with it
     // once whatever is at its other end is there too
     for (const id of s.doc.order) {
@@ -2273,7 +2308,9 @@ export class Editor {
     if (!(this.store.sel.size > 1 && new Set(this.selected().map((sh) => sh.group ?? sh.id)).size > 1)) return false;
     // an animated group can take more shapes in, whole; it cannot be split or merged with another that moves
     const scenes = this.store.doc.scenes ?? {}, touched = [...new Set(this.selected().map((sh) => sh.group).filter((g): g is Id => !!g && !!scenes[g]))];
-    return touched.length === 0 || (touched.length === 1 && this.members(this.store.doc, touched[0]!).every((m) => this.store.sel.has(m.id)));
+    if (touched.length === 0) return true;
+    // (and only with something it can take: a conversation, terminal or page stays out of one)
+    return touched.length === 1 && this.members(this.store.doc, touched[0]!).every((m) => this.store.sel.has(m.id)) && this.selected().some((sh) => sh.group !== touched[0] && !isLive(sh));
   }
   get canUngroup() {
     return this.selected().some((sh) => !!sh.group);
@@ -2283,9 +2320,18 @@ export class Editor {
     const s = this.store, scenes = s.doc.scenes ?? {};
     // shapes grouped with a group that moves join it (and are there from this moment on)
     const gid = this.selected().map((sh) => sh.group).find((g) => !!g && !!scenes[g]) ?? newId();
+    const moving = !!scenes[gid];
     s.run(() => {
-      s.put(...this.selected().map((sh) => ({ ...sh, group: gid })));
+      // (a conversation, terminal or page doesn't join a group that moves: it leaves whatever group it was in, as itself,
+      // and what stays picked is the drawing that moves, its moments still to hand)
+      s.put(...this.selected().map((sh) => {
+        if (!moving || !isLive(sh)) return { ...sh, group: gid };
+        const o = { ...sh };
+        delete o.group;
+        return o;
+      }));
       this.tidyScenes();
+      if (moving) s.select(this.members(s.doc, gid).map((sh) => sh.id));
     });
     this.invalidate();
   }

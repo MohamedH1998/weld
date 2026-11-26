@@ -38,6 +38,8 @@ jobs:
       - run: WELD_SEED=0 node scripts/shot.mjs out/keys test/keys.mjs
       # the conversation risen from the bar: scrolled, its words selected and copied
       - run: WELD_SEED=0 node scripts/shot.mjs out/reader test/reader.mjs
+      # a drawing that plays, stepped through with its conversation picked too, stays its agent's to redraw
+      - run: node scripts/shot.mjs out/moments test/moments.mjs
 
   web:
     runs-on: ubuntu-latest
