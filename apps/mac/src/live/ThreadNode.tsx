@@ -2,7 +2,7 @@
 // app's own (see electron/agents.mjs), so which lab's agent answers is a
 // choice made per message, not a property of the thread.
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { ArrowsOutSimple, At, CaretDown, CaretRight, ChatCircle, Check, Folder, FrameCorners, GitFork, Globe, Graph, KeyReturn, Minus, NoteBlank, Shapes, Stop, TerminalWindow, X , Image as ImageIcon } from "@phosphor-icons/react";
+import { ArrowsOutSimple, At, CaretDown, CaretRight, ChatCircle, Check, Copy, Folder, FrameCorners, GitFork, Globe, Graph, KeyReturn, Minus, NoteBlank, Shapes, Stop, TerminalWindow, X , Image as ImageIcon } from "@phosphor-icons/react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { AgentLogo } from "./AgentLogo";
@@ -402,6 +402,8 @@ const Part = memo(function Part({ text, open }: { text: string; open: (url: stri
               {children}
             </a>
           ),
+          // a block of code (a command to run, a query, a file): copied whole with the button in its corner
+          pre: ({ children }) => <CodeBlock>{children}</CodeBlock>,
           // (a picture an agent names is not fetched by itself: what the window loads would reach the network for an
           // agent that may not; it is a link, opened beside the thread when pressed)
           img: ({ src, alt }) => (
@@ -421,6 +423,40 @@ const Part = memo(function Part({ text, open }: { text: string; open: (url: stri
       </Markdown>
   );
 });
+
+/** A block of code in what an agent said, with a button in its corner that copies all of it (as it reads, without the
+ *  button), and says so for a moment. */
+function CodeBlock({ children }: { children: React.ReactNode }) {
+  const pre = useRef<HTMLPreElement>(null);
+  const [copied, setCopied] = useState(false);
+  const timer = useRef(0);
+  useEffect(() => () => window.clearTimeout(timer.current), []);
+  const copy = async () => {
+    const text = (pre.current?.querySelector("code") ?? pre.current)?.textContent?.replace(/\n$/, "") ?? "";
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      // (the page's own way, if the clipboard is not to be had that way)
+      const t = document.createElement("textarea");
+      t.value = text;
+      document.body.appendChild(t);
+      t.select();
+      document.execCommand("copy");
+      t.remove();
+    }
+    setCopied(true);
+    window.clearTimeout(timer.current);
+    timer.current = window.setTimeout(() => setCopied(false), 1400);
+  };
+  return (
+    <div className="code-block">
+      <pre ref={pre}>{children}</pre>
+      <button type="button" className="code-copy ctl" aria-label={copied ? "Copied" : "Copy code"} title={copied ? "Copied" : "Copy"} data-done={copied || undefined} onMouseDown={(e) => e.preventDefault()} onClick={() => void copy()}>
+        {copied ? <Check size={12} weight="bold" /> : <Copy size={12} />}
+      </button>
+    </div>
+  );
+}
 
 /** What an agent is doing just now, in a line: the step under way, or the last thing it said. */
 export function doingNow(items: Item[], running: boolean, cwd?: string): string {
