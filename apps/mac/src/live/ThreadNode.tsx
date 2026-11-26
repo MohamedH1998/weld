@@ -4,6 +4,7 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ArrowsOutSimple, At, CaretDown, CaretRight, ChatCircle, Check, Folder, FrameCorners, GitFork, Globe, Graph, KeyReturn, Minus, NoteBlank, Shapes, Stop, TerminalWindow, X , Image as ImageIcon } from "@phosphor-icons/react";
 import Markdown from "react-markdown";
+import { createPortal } from "react-dom";
 import remarkGfm from "remark-gfm";
 import { AgentLogo } from "./AgentLogo";
 import { defaultCwd, folderName, isScratch, weld, remember, settings, tilde, agentList, agentName, agentOf, chosenAgent, chosenModel } from "./bridge";
@@ -200,6 +201,7 @@ export function ThreadNode({ box, editor, active, far }: NodeProps) {
             <GitFork size={14} />
           </button>
         )}
+        {!running && !meta?.outside && (meta?.agent === "claude" || meta?.agent === "codex") && !!meta?.sessions?.[meta.agent] && <Elsewhere id={box.id} agent={meta.agent} sid={meta.sessions[meta.agent]!} />}
         {/* minimised, a thread keeps only its title bar (and its place); the same button opens it again */}
         {!away && <button type="button" aria-label={folded ? "Open this thread" : "Minimise this thread"} title={folded ? "Open" : "Minimise"} className="live-icon ctl" onMouseDown={(e) => e.preventDefault()} onClick={() => fold(editor, box.id, !folded)}>
           {folded ? <ArrowsOutSimple size={14} /> : <Minus size={14} weight="bold" />}
@@ -213,6 +215,12 @@ export function ThreadNode({ box, editor, active, far }: NodeProps) {
       </Head>
       {/* folded, the rest is hidden, not taken away: a reply half written is still there when it opens */}
       <div className="contents" style={folded ? { display: "none" } : undefined}>
+        {meta?.outside && (
+          <div className="thread-outside" role="status">
+            <span>Open in {meta.outside.app}. Weld picks it back up when you close it there{meta.queue?.length ? `, and sends what you've said here` : ""}.</span>
+            <button type="button" className="live-chip ctl" onMouseDown={(e) => e.preventDefault()} onClick={() => void weld.thread.takeBack(box.id)}>Take it back</button>
+          </div>
+        )}
       <Sees editor={editor} id={box.id} />
       <Transcript items={items} meta={meta} running={running} active={active} editor={editor} id={box.id} unsaved={thread?.unsaved} />
       {meta && <Composer id={box.id} editor={editor} meta={meta} items={items} running={running} active={active && !far && !folded} onFolder={() => void setCwd()} />}
@@ -421,6 +429,50 @@ const Part = memo(function Part({ text, open }: { text: string; open: (url: stri
       </Markdown>
   );
 });
+
+/** Continue a thread's session in its agent's own app (where its own commands, /remote-control say, work), or copy
+ *  its session id: from a small menu in the thread's title bar. */
+function Elsewhere({ id, agent, sid }: { id: Id; agent: "claude" | "codex"; sid: string }) {
+  // (the menu is put over everything, under the button, not inside the card: the card clips what reaches past it)
+  const [at, setAt] = useState<null | { right: number; top: number }>(null), [said, setSaid] = useState("");
+  const here = useRef<HTMLButtonElement>(null), menu = useRef<HTMLDivElement>(null);
+  const app = agent === "claude" ? "Claude Code" : "Codex";
+  useEffect(() => {
+    if (!at) return;
+    const away = (e: Event) => !here.current?.contains(e.target as Node) && !menu.current?.contains(e.target as Node) && setAt(null);
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && setAt(null);
+    window.addEventListener("pointerdown", away, true);
+    window.addEventListener("wheel", away, true);
+    window.addEventListener("keydown", esc, true);
+    return () => (window.removeEventListener("pointerdown", away, true), window.removeEventListener("wheel", away, true), window.removeEventListener("keydown", esc, true));
+  }, [at]);
+  const toggle = () => {
+    setSaid("");
+    const r = here.current?.getBoundingClientRect();
+    setAt((a) => (a || !r ? null : { right: window.innerWidth - r.right, top: r.bottom + 4 }));
+  };
+  return (
+    <>
+      <button ref={here} type="button" aria-label={`Continue in ${app}`} title={`Continue in ${app}`} aria-expanded={!!at} className="live-icon ctl" onMouseDown={(e) => e.preventDefault()} onClick={toggle}>
+        <TerminalWindow size={14} />
+      </button>
+      {at && createPortal(
+        <div ref={menu} className="live-menu ui-in thread-elsewhere" role="menu" style={{ right: at.right, top: at.top }}>
+          <button type="button" role="menuitem" onMouseDown={(e) => e.preventDefault()} onClick={async () => { const r = await weld.thread.handOut(id); if (r.error) setSaid(r.error); else setAt(null); }}>
+            Continue in {app}
+            <span className="sub">in Terminal</span>
+          </button>
+          <button type="button" role="menuitem" onMouseDown={(e) => e.preventDefault()} onClick={async () => { try { await navigator.clipboard.writeText(sid); setSaid("Copied"); } catch { setSaid("Couldn't copy"); } }}>
+            Copy session id
+            <span className="sub">{sid.slice(0, 18)}…</span>
+          </button>
+          {said && <div className="sub px-3 pb-2" role="status">{said}</div>}
+        </div>,
+        document.body,
+      )}
+    </>
+  );
+}
 
 /** What an agent is doing just now, in a line: the step under way, or the last thing it said. */
 export function doingNow(items: Item[], running: boolean, cwd?: string): string {

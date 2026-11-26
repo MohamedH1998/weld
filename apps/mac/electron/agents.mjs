@@ -123,7 +123,38 @@ export class Threads {
     });
   }
   held(id) {
-    return (this.reserved.get(id)?.size ?? 0) > 0;
+    // (and while its session is open in its agent's own app, everything said here waits for it to come back)
+    return (this.reserved.get(id)?.size ?? 0) > 0 || !!this.all.get(id)?.meta?.outside;
+  }
+  /** Let a thread's session be continued in its agent's own app (Claude Code, Codex): Weld lets go of its own run of it
+   *  (two runs of one session would both write to it) and holds what is said here until it comes back. Answers the
+   *  command that continues it there, in its folder; or why it can't be. */
+  handOut(id) {
+    const t = this.get(id), agent = t.meta.agent;
+    if (agent !== "claude" && agent !== "codex") return { error: "Only Claude Code and Codex threads can be continued in their own app" };
+    const sid = t.meta.sessions?.[agent];
+    if (!sid) return { error: "Nothing to continue yet: ask it something first" };
+    if (t.meta.status === "running" || this.running.has(id) || this.starting.has(id)) return { error: "It is working: continue it once it has finished" };
+    this.drop(id);
+    // (Codex's own server for this thread, if it has one, is shut down too)
+    if (agent === "codex") (clearTimeout(this.codexIdle.get(id)), this.codexes.get(id)?.shutdown(), this.codexes.delete(id));
+    const app = agent === "claude" ? "Claude Code" : "Codex";
+    this.meta(id, { outside: { app, sid, since: now() } });
+    this.put(id, { kind: "note", id: `n${now().toString(36)}o`, text: `Continued in ${app}`, at: now() });
+    return { agent, app, sid, cwd: t.meta.cwd || os.homedir(), command: agent === "claude" ? ["claude", "--resume", sid] : ["codex", "resume", sid] };
+  }
+  /** Back from its agent's own app: Weld runs it again, and what was said here meanwhile goes first. */
+  takeBack(id) {
+    const t = this.all.get(id);
+    if (!t?.meta?.outside) return;
+    const app = t.meta.outside.app;
+    this.meta(id, { outside: null });
+    this.put(id, { kind: "note", id: `n${now().toString(36)}b`, text: `Back from ${app}`, at: now() });
+    if (t.meta.queue.length && t.meta.status !== "running") {
+      const [first, ...rest] = t.meta.queue;
+      this.meta(id, { queue: rest });
+      this.start(id, first.text, extraOf(first));
+    }
   }
   hold(id, turn, mode) {
     let m = this.reserved.get(id);
@@ -954,7 +985,7 @@ export class Threads {
   /** Start this thread's agent before it is asked anything (the person has begun to type): the first word then comes sooner. */
   warm(id) {
     const t = this.get(id);
-    if (t.meta.status === "running" || this.running.has(id)) return;
+    if (t.meta.status === "running" || this.running.has(id) || t.meta.outside) return;
     // (only the agents Weld keeps running between turns: an ACP agent is started by its turn)
     if (t.meta.agent && t.meta.agent !== "claude" && t.meta.agent !== "codex") return;
     if (t.meta.agent === "codex") {

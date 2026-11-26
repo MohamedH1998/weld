@@ -968,6 +968,25 @@ function guideFor(name) {
 }
 /** Hand what an agent wants drawn to the board, and wait for what the board made of it. */
 const drawWaits = new Map();
+/** While a thread's session is open in its agent's own app: is a run of it still going there? Looked for every few
+ *  seconds; once one has been seen and is gone (or none has appeared within a minute), the thread is Weld's again. */
+const outsideWatch = new Map();
+function watchOutside(id, sid) {
+  outsideWatch.get(id)?.();
+  let seen = false, stopped = false;
+  const since = Date.now();
+  const look = () => execFile("/bin/ps", ["-axo", "command="], { maxBuffer: 8 * 1024 * 1024 }, (err, out) => {
+    if (stopped) return;
+    // (a run of that session that isn't Weld's own: Weld runs agents scripted, with stream-json or as an app server)
+    const there = !err && String(out).split("\n").some((l) => l.includes(sid) && /\b(claude|codex)\b/.test(l) && /resume/.test(l) && !/stream-json|app-server/.test(l));
+    if (there) seen = true;
+    if (!there && (seen || Date.now() - since > 60000)) return (stop(), threads.takeBack(id));
+    timer = setTimeout(look, 4000);
+  });
+  let timer = setTimeout(look, 4000);
+  const stop = () => ((stopped = true), clearTimeout(timer), outsideWatch.delete(id));
+  outsideWatch.set(id, stop);
+}
 function drawFor(thread, ops) {
   return new Promise((resolve, reject) => {
     const req = randomBytes(6).toString("hex");
@@ -1795,6 +1814,20 @@ function wire() {
   ipcMain.handle("thread:unqueue", (_e, id, at) => threads.unqueue(id, at));
   ipcMain.handle("thread:sendQueued", async (_e, id, at) => (await envReady, threads.sendQueued(id, at)));
   ipcMain.handle("thread:fork", (_e, from, to) => threads.fork(from, to));
+  // a thread's session continued in its agent's own app, in Terminal, in its own folder: Weld lets go of it meanwhile,
+  // and takes it back once that app has let go of it (or when the person says so)
+  ipcMain.handle("thread:handOut", async (_e, id) => {
+    await envReady;
+    const r = threads.handOut(id);
+    if (r.error) return r;
+    const q = (x) => `'${String(x).replace(/'/g, `'\\''`)}'`;
+    const file = path.join(os.tmpdir(), `weld-continue-${id.replace(/[^A-Za-z0-9_-]/g, "_")}.command`);
+    writeFileSync(file, `#!/bin/zsh -l\ncd ${q(r.cwd)} && exec ${r.command.map(q).join(" ")}\n`, { mode: 0o700 });
+    if (!TEST) await shell.openPath(file);
+    watchOutside(id, r.sid);
+    return { app: r.app, sid: r.sid, command: `cd ${q(r.cwd)} && ${r.command.map(q).join(" ")}` };
+  });
+  ipcMain.handle("thread:takeBack", (_e, id) => (outsideWatch.get(id)?.(), threads.takeBack(id)));
   ipcMain.handle("thread:forget", async (_e, id) => (typeof id === "string" && id.startsWith("smith") ? threads.forget(id) : undefined));
 }
 

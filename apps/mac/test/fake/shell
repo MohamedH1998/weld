@@ -1,0 +1,4 @@
+#!/bin/sh
+# A stand-in for the person's login shell, for checks: asked for its environment (as Weld asks at launch), it gives the
+# check's own, unchanged, so what is first on the check's PATH (test/fake) is what Weld finds.
+echo __WELD_ENV__; /usr/bin/env; echo __WELD_ENV__
