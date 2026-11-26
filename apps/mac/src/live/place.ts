@@ -297,6 +297,7 @@ export function sendThreadAway(editor: Editor, id: Id) {
   if (!b || b.kind !== "thread") return;
   // (what it was shown by arrows to its card is kept by name: the arrows go with the card)
   const { tall: _t, ...live } = b.live ?? {};
-  editor.store.sendAway(id, { ...b, w: 1, h: 1, live: { ...live, sees: seesOf(editor, id) } });
+  // (and when: closed by the person, it is shown in the bar from then on, whatever it is doing)
+  editor.store.sendAway(id, { ...b, w: 1, h: 1, live: { ...live, sees: seesOf(editor, id), closed: Date.now() } });
   editor.invalidate();
 }

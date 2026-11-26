@@ -61,7 +61,6 @@ export interface Meta {
   sessions: Partial<Record<Agent, string>>;
   startedAt?: number;
   endedAt?: number;
-  cost?: number;
   modelName?: string;
   lastAgent?: Agent;
   handoff?: boolean;
@@ -217,7 +216,7 @@ export interface Weld {
   onReveal: (fn: (id: string) => void) => () => void;
   onLook: (fn: (o: { thread: string; req: string; keys?: string[] }) => void) => () => void;
   onDraw: (fn: (o: { thread: string; req: string; ops: unknown }) => void) => () => void;
-  drew: (req: string, r: { made: Record<string, string>; changed: number; removed: number; problems: string[] }) => void;
+  drew: (req: string, r: { made: Record<string, string>; changed: number; removed: number; problems: string[]; held?: number }) => void;
   onGuide: (fn: (o: { req: string; name: string }) => void) => () => void;
   guided: (req: string, text: string) => void;
   looked: (req: string, refs: BoardRef[]) => void;
