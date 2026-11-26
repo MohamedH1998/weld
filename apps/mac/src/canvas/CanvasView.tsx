@@ -77,7 +77,12 @@ function Tip({ label, keys, children, side = "top" }: { label: string; keys?: st
 }
 
 export function CanvasView() {
-  const editor = useMemo(() => new Editor(), []);
+  // (what the person makes or changes is marked as theirs: an agent drawing on this board leaves it be unless asked)
+  const editor = useMemo(() => {
+    const e = new Editor();
+    e.store.markEdits = true;
+    return e;
+  }, []);
   const store = editor.store;
   useSyncExternalStore(store.subscribe, store.getVersion, () => 0);
   const canvasRef = useRef<HTMLCanvasElement>(null);

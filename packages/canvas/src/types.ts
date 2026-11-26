@@ -75,9 +75,9 @@ export interface Box {
   img?: { hash: string; ext: string; w: number; h: number; name: string; preview?: boolean; origin?: string; by?: Id };
   /** Shapes that share this move, select and copy as one. */
   group?: Id;
-  /** Where it stood and what it said when an agent last drew or changed it (a short mark): a shape that no longer matches
-   *  it has been changed since, by the person, and an agent does not take that back without being asked. */
-  drawnAs?: string;
+  /** Made or changed by the person (never set by an agent's drawing): theirs, so an agent does not take it away, move it
+   *  back or reword it without being asked. */
+  edited?: true;
   /** Held in place: not picked up, moved or deleted until unlocked. */
   locked?: true;
   /** Not there in this moment of a group that moves (it is in others). */
@@ -193,8 +193,8 @@ export interface Text {
   tone: Tone;
   rot?: number;
   group?: Id;
-  /** As on a Box: how an agent last left it. */
-  drawnAs?: string;
+  /** As on a Box: made or changed by the person. */
+  edited?: true;
   locked?: true;
   /** Not there in this moment of a group that moves (it is in others). */
   away?: true;
@@ -276,8 +276,8 @@ export interface Arrow {
   tone: Tone;
   line?: Line;
   group?: Id;
-  /** As on a Box: how an agent last left it. */
-  drawnAs?: string;
+  /** As on a Box: made or changed by the person. */
+  edited?: true;
   locked?: true;
   /** Not there in this moment of a group that moves (it is in others). */
   away?: true;

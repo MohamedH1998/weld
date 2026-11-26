@@ -110,6 +110,8 @@ export const LiveLayer = memo(function LiveLayer({ editor, dark }: { editor: Edi
         // the person is in the middle of moving or making something: the agent's change waits for them to finish
         const go = (tries: number) => {
           if ((editor.store.busy || editor.overlay.busy) && tries < 80) return void setTimeout(() => go(tries + 1), 100);
+          // (still at it after all that: nothing is done over what they are doing, and the agent is told to try again)
+          if (editor.store.busy || editor.overlay.busy) return void weld.drew(req, { made: {}, changed: 0, removed: 0, problems: ["not done: the person is in the middle of changing the board; try again in a moment"], held: 1 });
           let r;
           try {
             r = draw(editor, thread, ops as DrawOps);

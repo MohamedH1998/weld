@@ -212,8 +212,9 @@ function openDoor() {
         } catch {
           return done(400, "weld: draw takes JSON, e.g. weld draw '{\"add\":[{\"ref\":\"api\",\"text\":\"API\"}]}'\n");
         }
+        // (anything left as the person left it is a failure, so `weld draw … && weld draw …` stops there)
         void drawFor(from, ops).then(
-          (r) => done(200, [
+          (r) => done(r.held ? 409 : 200, [
             ...Object.entries(r.made).map(([k, v]) => `${k} = #${v}`),
             r.changed ? `changed ${r.changed}` : "",
             r.removed ? `removed ${r.removed}` : "",
@@ -294,6 +295,9 @@ weld draw takes any of these, together or alone:
   "connect": [{"from": "api", "to": "#a1b2", "text": "reads"}]      lines, by a ref you just gave or a #id
   "change":  [{"id": "#a1b2", "text": "MySQL", "x": 0, "y": 0, "dx": 40, "dy": 0, "w": 200, "h": 80, "tone": "red", "fill": "tint"}]
   "remove":  ["#a1b2", "#c3d4"]                                     lines left with nothing at one end go too; pages and terminals you opened close
+  "force":   true                                                   what the person made or changed (moved, resized, reworded, drew) is
+                                                                    left as they left it, and weld draw fails saying so; with force it is
+                                                                    removed or moved back anyway: only when the person asked for that
              pages, terminals and conversations can be moved and sized with "change" too (x, y, dx, dy, w, h), by their #id from weld look
   "copy":    [{"of": "#a1b2", "dx": 900, "dy": 0}]                  a whole drawing, group or frame (named by any #id in it), duplicated;
                                                                     without dx and dy it is put beside the original, clear of everything
