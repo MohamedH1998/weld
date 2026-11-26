@@ -9,7 +9,7 @@ export default async ({ app, page }) => {
   const E = (fn, ...a) => page.evaluate(fn, ...a);
   await wait(2000);
   // (never a real agent: the Claude this Weld would run must be the stand-in, or nothing is sent)
-  await wait(2000);
+  for (let t = 0; t < 60 && !(await E(() => window.weld.envKnown?.() ?? true)); t++) await wait(200);
   const bin = await app.evaluate(() => { const fs = process.getBuiltinModule("node:fs"), p = process.getBuiltinModule("node:path"); for (const d of (process.env.PATH || "").split(":")) if (d && fs.existsSync(p.join(d, "claude"))) return p.join(d, "claude"); return null; });
   check("(the Claude this Weld runs is the stand-in)", !!bin && bin.endsWith("test/fake/claude"), bin);
   if (!bin?.endsWith("test/fake/claude")) return;
@@ -28,10 +28,21 @@ export default async ({ app, page }) => {
     await E(([T, text]) => window.weld.thread.send(T, { text }), [T, text]);
     th = await done(n);
   }
-  const said = th.items.filter((i) => i.kind === "text").map((i) => i.text);
-  check("(three turns answered by the one Claude kept running)", said.filter((x) => /^ok \d/.test(x)).length === 3, said);
+  const said = () => th.items.filter((i) => i.kind === "text" && /^ok \d/.test(i.text ?? "")).map((i) => i.text);
+  check("(three turns, answered in turn by the one Claude kept running)", said().join() === "ok 1,ok 2,ok 3", said());
   check("the thread's cost is what the three turns cost ($0.30), counted once", Math.abs((th.meta.cost ?? 0) - 0.3) < 1e-9, th.meta.cost);
   await wait(500);
   const shown = await E((T) => document.querySelector(`[data-live="${T}"] .live-cost`)?.textContent, T);
   check("…and the thread's card says so beside its name", shown === "$0.30", shown);
+  const tip = await E((T) => { const c = document.querySelector(`[data-live="${T}"] .live-cost`); return c && { title: c.title, pe: getComputedStyle(c).pointerEvents }; }, T);
+  check("…which, pointed at, says what it is", !!tip?.title && tip.pe !== "none", tip);
+  // a fresh run of it (its mode changed), resumed: what the session cost before is not counted again
+  await E((T) => window.weld.thread.set(T, { mode: "edits" }), T);
+  await E((T) => window.weld.thread.send(T, { text: "fourth" }), T);
+  th = await done(4);
+  check("(a fresh run, resumed, answers the session's fourth turn)", said().at(-1) === "ok 4", said());
+  check("resumed, the thread's cost is the four turns' ($0.40), its earlier spend not counted again", Math.abs((th.meta.cost ?? 0) - 0.4) < 1e-9, th.meta.cost);
+  // a thread branched from it starts with no cost of its own
+  const copy = await E(async (T) => { const id = `fork${Date.now().toString(36)}`; const c = await window.weld.thread.fork(T, id); return c.meta.cost ?? null; }, T);
+  check("a thread branched from it starts with no cost of its own", copy === null, copy);
 };

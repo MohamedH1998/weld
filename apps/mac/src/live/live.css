@@ -538,3 +538,5 @@
 .settings-t3 { height: auto; padding-top: 8px; padding-bottom: 8px; }
 .settings-small { height: 28px; padding: 0 12px; border-radius: 8px; font-size: 12px; flex: none; }
 .settings-on { display: inline-flex; align-items: center; gap: 4px; color: var(--live-accent); flex: none; }
+/* a thread's cost, beside its name: pointed at, it says what it is */
+.live-cost { pointer-events: auto; cursor: default; }

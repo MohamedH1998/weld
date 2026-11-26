@@ -221,6 +221,9 @@ export class Threads {
     // (a thread kept from when there was a Plan mode is held to Edits only, the nearer of the two left)
     if (!MODES.includes(t.meta.mode)) t.meta.mode = "edits";
     t.meta.workspace = placeOf(t.meta.cwd);
+    // (a cost kept from before costs were counted by session was counted wrong, many turns over: it is not shown, and
+    // counting starts again from here)
+    if (t.meta.cost !== undefined && !t.meta.costs) (delete t.meta.cost, (t.meta.costs = {}));
     // nothing survives a restart mid-turn: what was running is now stopped
     if (t.meta.status === "running") {
       t.meta.status = "idle";
@@ -355,7 +358,9 @@ export class Threads {
     copy.id = to;
     // the copy starts its own session with each agent, carrying the record across as a handoff
     // (what the original left running stays the original's)
-    copy.meta = { ...copy.meta, sessions: {}, status: "idle", unread: false, queue: [], handoff: true, services: [], asking: false };
+    copy.meta = { ...copy.meta, sessions: {}, status: "idle", unread: false, queue: [], handoff: true, services: [], asking: false, costs: {} };
+    // (what the original's turns cost is the original's)
+    delete copy.meta.cost;
     // (what T3 Code has seen, and that T3 Code made it, belong to the original)
     delete copy.meta.acpSeen;
     delete copy.meta.acpMade;
@@ -1241,12 +1246,21 @@ function claudeReader(th, id, turn, lp) {
       if (ev.type === "result") {
         done = true;
         const t = th.get(id);
-        // (what it says it has cost is its whole run's so far, every turn of the agent kept running between turns: only
-        // what this turn added is added to the thread's, or the turns before would be counted again with each one)
-        const total = Number(ev.total_cost_usd) || 0, seen = lp?.costSeen ?? 0;
-        const added = total >= seen ? total - seen : total;
-        if (lp) lp.costSeen = total;
-        th.meta(id, { cost: (t.meta.cost || 0) + added, lastMs: ev.duration_ms });
+        // What it says it has cost is a running total, not this turn's: of its session so far (Claude Code resumed with
+        // --resume carries the session's earlier spend into it), or, in older versions, of this run of it only. Each
+        // session's total is kept, and only what it grew by is added to the thread's, so no turn is counted twice: a
+        // run's first total below what its session is known to have cost is a run that started from nothing, and is
+        // added whole. (A result with no total, or a lower one later in the same run, adds nothing.)
+        const total = Number(ev.total_cost_usd);
+        if (Number.isFinite(total) && total > 0) {
+          const sid = ev.session_id || t.meta.sessions?.claude || "?", costs = { ...(t.meta.costs || {}) }, known = costs[sid] || 0;
+          let added;
+          if (lp && lp.costSeen !== undefined) added = Math.max(0, total - lp.costSeen);
+          else added = total >= known ? total - known : total;
+          if (lp) lp.costSeen = total;
+          costs[sid] = known + added;
+          th.meta(id, { costs, cost: (t.meta.cost || 0) + added, lastMs: ev.duration_ms });
+        } else th.meta(id, { lastMs: ev.duration_ms });
         if (ev.is_error) failure = clip(String(ev.result || ev.subtype || "The turn failed"), 800);
         if (ev.session_id) th.meta(id, { sessions: { ...t.meta.sessions, claude: ev.session_id } });
       }

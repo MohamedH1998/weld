@@ -60,6 +60,7 @@ export interface Meta {
   startedAt?: number;
   endedAt?: number;
   cost?: number;
+  costs?: Record<string, number>;
   modelName?: string;
   lastAgent?: Agent;
   handoff?: boolean;
