@@ -442,9 +442,14 @@ function TakeBack({ id, app }: { id: Id; app: string }) {
   return (
     <>
       {live && <span className="sub">It's still open in {app}: close it there first.</span>}
-      <button type="button" className="live-chip ctl" onMouseDown={(e) => e.preventDefault()} onClick={async () => { const r = await weld.thread.takeBack(id, live); setLive(!!r.live || !!r.pending); }}>
-        {live ? "Bring it back anyway" : "Back in Weld"}
+      <button type="button" className="live-chip ctl" onMouseDown={(e) => e.preventDefault()} onClick={async () => { const r = await weld.thread.takeBack(id, false); setLive(!!r.live || !!r.pending); }}>
+        {live ? "Check again" : "Back in Weld"}
       </button>
+      {live && (
+        <button type="button" className="live-chip ctl" onMouseDown={(e) => e.preventDefault()} onClick={async () => { const r = await weld.thread.takeBack(id, true); setLive(!!r.live || !!r.pending); }}>
+          Bring it back anyway
+        </button>
+      )}
     </>
   );
 }

@@ -6,14 +6,14 @@
 // agents:
 //   FAKE_CLAUDE_TERM_MS=1500 PATH="$PWD/test/fake:$PATH" SHELL="$PWD/test/fake/shell" node scripts/shot.mjs out/elsewhere test/elsewhere.mjs
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const check = (name, ok, extra) => console.log(`${ok ? "ok  " : "FAIL"} ${name}${!ok && extra !== undefined ? ` -> ${JSON.stringify(extra).slice(0, 300)}` : ""}`);
 
-export default async ({ app, page, shot }) => {
+export default async ({ app, page, shot, out }) => {
   const E = (fn, ...a) => page.evaluate(fn, ...a);
   for (let t = 0; t < 60 && !(await E(() => window.weld.envKnown?.() ?? true)); t++) await wait(200);
   const bin = await app.evaluate(() => { const fs = process.getBuiltinModule("node:fs"), p = process.getBuiltinModule("node:path"); for (const d of (process.env.PATH || "").split(":")) if (d && fs.existsSync(p.join(d, "claude"))) return p.join(d, "claude"); return null; });
@@ -56,9 +56,13 @@ export default async ({ app, page, shot }) => {
   // the launcher, as Terminal would run it: in the thread's folder, on that session; meanwhile what is said waits
   const r = await E((T) => window.weld.thread.handOut(T), T);
   check("(continued again, with its launcher)", !!r.script && existsSync(r.script), r);
+  // (written down whole, its launcher's folder with it, before the launcher could run)
+  const onDisk = JSON.parse(readFileSync(path.join(out, "data", "threads", `${T}.json`), "utf8")).meta.outside;
+  check("the thread is written down as out, with its launcher's folder, before the launcher can run", !!onDisk && !onDisk.pending && onDisk.dir === path.dirname(r.script), onDisk);
   await E((T) => window.weld.thread.send(T, { text: "second" }), T);
+  await E((T) => window.weld.thread.send(T, { text: "and more" }), T);
   await wait(800);
-  check("what is said meanwhile waits, and says it will go once it's back", (await get()).meta.queue.length === 1 && (await oks()).length === 1 && /once it's back from Claude Code/.test(await E((T) => document.querySelector(`[data-live="${T}"]`)?.textContent ?? "", T)));
+  check("what is said meanwhile waits, and says it will go once it's back", (await get()).meta.queue.length === 2 && (await oks()).length === 1 && /once it's back from Claude Code/.test(await E((T) => document.querySelector(`[data-live="${T}"]`)?.textContent ?? "", T)));
   const there = spawn("/bin/sh", [r.script], { stdio: ["pipe", "ignore", "ignore"] });
   await wait(2500);
   const sessFile = path.join(os.tmpdir(), `weld-fake-claude-${sid}.json.cwd`);
@@ -75,10 +79,25 @@ export default async ({ app, page, shot }) => {
   check("brought back once it has closed there, it is Weld's again", !(await E((T) => window.weld.thread.takeBack(T), T)).live && !(await get()).meta.outside);
   await wait(1500);
   const back = await get();
-  check("…what waited is not sent by itself: it waits for Send", back.meta.queue.length === 1 && (await oks()).length === 1 && back.items.some((i) => i.kind === "note" && /Back from Claude Code/.test(i.text ?? "")), back.meta.queue);
+  check("…what waited is not sent by itself: it waits for Send", back.meta.queue.length === 2 && (await oks()).length === 1 && back.items.some((i) => i.kind === "note" && /Back from Claude Code/.test(i.text ?? "")), back.meta.queue);
   await E(([T, at]) => window.weld.thread.sendQueued(T, at), [T, back.meta.queue[0].at]);
   for (let t = 0; t < 40 && (await oks()).length < 2; t++) await wait(250);
-  check("…and goes when sent", (await oks()).join() === "ok 1,ok 2", await oks());
+  await wait(1500);
+  check("…and goes when sent, the other still waiting for its own Send (not taken next)", (await oks()).join() === "ok 1,ok 2" && (await get()).meta.queue.length === 1, { oks: await oks(), queue: (await get()).meta.queue.length });
+  await E(([T, at]) => window.weld.thread.unqueue(T, at), [T, (await get()).meta.queue[0].at]);
+
+  // a launcher that has claimed its folder and is still starting (stalled, say, before it reaches the agent) counts as live
+  const r5 = await E((T) => window.weld.thread.handOut(T), T);
+  const dir5 = path.dirname(r5.script);
+  mkdirSync(path.join(dir5, "claimed"));
+  // (a shell holding the launcher's folder in its words, as the launcher would while it starts)
+  const stalled = spawn("/bin/sh", ["-c", "sleep 20; true", path.join(dir5, "Continue in Claude Code.command")], { stdio: "ignore" });
+  await wait(500);
+  const tb5 = await E((T) => window.weld.thread.takeBack(T), T);
+  check("a launcher still starting (its folder claimed, not yet at the agent) is as good as running", !!tb5.live && !!(await get()).meta.outside, tb5);
+  stalled.kill("SIGKILL");
+  await wait(500);
+  await E((T) => window.weld.thread.takeBack(T, true), T);
 
   // a launcher not yet run when the thread is brought back does nothing after
   const r2 = await E((T) => window.weld.thread.handOut(T), T);

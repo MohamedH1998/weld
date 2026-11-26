@@ -975,7 +975,7 @@ function runningOutside(sid) {
   return new Promise((done) =>
     execFile("/bin/ps", ["-ww", "-U", String(process.getuid?.() ?? ""), "-o", "command="], { maxBuffer: 8 * 1024 * 1024 }, (err, out) => {
       if (err) return done(null);
-      done(String(out).split("\n").some((l) => l.trim().split(/\s+/).includes(sid) && !/stream-json|app-server/.test(l) && !/\/bin\/ps\b/.test(l)));
+      done(String(out).split("\n").some((l) => (l.trim().split(/\s+/).includes(sid) || (sid.startsWith("/") && l.includes(sid))) && !/stream-json|app-server/.test(l) && !/\/bin\/ps\b/.test(l)));
     }),
   );
 }
@@ -1833,7 +1833,7 @@ function wire() {
         "",
       ].join("\n"), { mode: 0o700, flag: "wx" });
       // (kept with the thread itself, written before the launcher can run: a Weld opened again can still claim it)
-      threads.outsideAt(id, dir);
+      if (!threads.outsideAt(id, dir)) throw new Error("couldn't write it down");
       if (TEST) return { app: r.app, sid: r.sid, script: file };
       const failed = await shell.openPath(file);
       if (failed) throw new Error(failed);
@@ -1863,7 +1863,8 @@ function wire() {
         /* claimed by the launcher, or gone */
       }
     }
-    if (!unstarted && !force && (await runningOutside(out.sid)) !== false) return { live: true };
+    // (the launcher itself, still starting it (its folder in its command), is as good as running)
+    if (!unstarted && !force && ((await runningOutside(out.sid)) !== false || (out.dir && (await runningOutside(out.dir)) !== false))) return { live: true };
     try {
       if (out.dir) rmSync(out.dir, { recursive: true, force: true });
     } catch {

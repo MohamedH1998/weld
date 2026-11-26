@@ -147,7 +147,7 @@ export class Threads {
     const lp = this.live.get(id), proc = lp && !lp.dead ? lp.proc : null;
     const codex = agent === "codex" ? this.codexes.get(id) : null, cproc = codex?.proc ?? null;
     this.drop(id);
-    if (codex) (clearTimeout(this.codexIdle.get(id)), codex.shutdown(), this.codexes.delete(id));
+    if (codex) (clearTimeout(this.codexIdle.get(id)), this.retireCodex(id));
     const alive = (p) => !!p && p.exitCode === null && p.signalCode === null;
     const ended = (p) => (!alive(p) ? Promise.resolve() : new Promise((done) => p.once("exit", () => done())));
     // (and any run of it Weld let go a moment ago, still finishing)
@@ -166,10 +166,27 @@ export class Threads {
     this.put(id, { kind: "note", id: `n${now().toString(36)}o`, text: `Continued in ${app}`, at: now() });
     return { agent, app, sid, cwd: t.meta.cwd || os.homedir() };
   }
+  /** Let go of a thread's Codex server: shut down, and its ending kept (a hand-out of the thread waits for it). */
+  retireCodex(id) {
+    const c = this.codexes.get(id), p = c?.proc;
+    this.codexes.delete(id);
+    if (p && p.exitCode === null && p.signalCode === null) {
+      const done = Promise.race([new Promise((r) => p.once("exit", () => r())), new Promise((r) => setTimeout(r, 6000))]);
+      const was = this.exiting.get(id);
+      const both = was ? Promise.all([was, done]) : done;
+      this.exiting.set(id, both);
+      void both.then(() => this.exiting.get(id) === both && this.exiting.delete(id));
+    }
+    c?.shutdown();
+  }
   /** Where the launcher for a thread out in its agent's own app is (kept with the thread, so it can be claimed later). */
   outsideAt(id, dir) {
     const o = this.all.get(id)?.meta?.outside;
-    if (o) this.meta(id, { outside: { ...o, dir } });
+    if (!o) return false;
+    this.meta(id, { outside: { ...o, dir } });
+    // (written down now, whole, before the launcher can run: a Weld that stops after it has gives it back as out)
+    this.save(id, true);
+    return !this.unsaved.has(id);
   }
   /** Back from its agent's own app, when the person brings it back: Weld runs it again when asked. What was said while it
    *  was out waits, each to be sent when they say (nothing is sent by itself). */
@@ -503,7 +520,7 @@ export class Threads {
     // another agent: the one kept running for this thread is let go (it would only sit there)
     if ("agent" in allowed && allowed.agent !== this.get(id).meta.agent && !this.running.has(id)) {
       if (this.live.has(id)) this.drop(id);
-      if (this.codexes.has(id)) (this.codexes.get(id).shutdown(), this.codexes.delete(id));
+      if (this.codexes.has(id)) this.retireCodex(id);
     }
     // another mode: the agent kept running was started with the old one, and could still act with it if it spoke
     // unasked; it is let go, and the next turn starts one with the new mode
@@ -529,13 +546,14 @@ export class Threads {
     const keys = Array.isArray(refs) ? refs.filter((k) => typeof k === "string").slice(0, 100) : [];
     const q = { text, at, ...(keys.length ? { refs: keys } : {}) };
     if (t.meta.status === "running" || this.held(id)) {
-      // said while the agent is busy (or its last turn is still being wound up): it waits its turn
-      this.meta(id, { queue: [...t.meta.queue, q] });
+      // said while the agent is busy (or its last turn is still being wound up): it waits its turn; said while it is out
+      // in its agent's own app, it waits for the person to send it (once it is back), never going by itself
+      this.meta(id, { queue: [...t.meta.queue, t.meta.outside ? { ...q, manual: true } : q] });
       return;
     }
     // what was left waiting by a turn that failed still goes first, in the order it was said
-    if (t.meta.queue.length) {
-      const [first, ...rest] = t.meta.queue;
+    if (t.meta.queue.some((x) => !x.manual)) {
+      const first = t.meta.queue.find((x) => !x.manual), rest = t.meta.queue.filter((x) => x !== first);
       this.meta(id, { queue: [...rest, q] });
       return this.start(id, first.text, extraOf(first));
     }
@@ -730,9 +748,9 @@ export class Threads {
       void settled.then(() => {
         this.finish(id, turn, run.stopped ? "stopped" : error ? "failed" : "done");
         if (run.stopped || error) return;
-        const t2 = this.get(id), next = t2.meta.queue[0];
+        const t2 = this.get(id), next = t2.meta.queue.find((x) => !x.manual);
         if (!next || t2.meta.status === "running" || this.running.has(id) || this.starting.has(id) || this.held(id)) return;
-        this.meta(id, { queue: t2.meta.queue.slice(1) });
+        this.meta(id, { queue: t2.meta.queue.filter((x) => x !== next) });
         this.start(id, next.text, extraOf(next));
       });
     };
@@ -897,13 +915,12 @@ export class Threads {
     clearTimeout(this.codexIdle.get(id));
     this.codexIdle.set(id, setTimeout(() => {
       if (this.running.has(id)) return;
-      this.codexes.get(id)?.shutdown();
-      this.codexes.delete(id);
+      this.retireCodex(id);
     }, 10 * 60 * 1000));
     const idle = [...this.codexes.keys()].filter((k) => k !== id && !this.running.has(k));
     while (this.codexes.size > 5 && idle.length) {
       const k = idle.shift();
-      this.codexes.get(k)?.shutdown();
+      this.retireCodex(k);
       this.codexes.delete(k);
     }
   }
@@ -1000,8 +1017,9 @@ export class Threads {
     // (its ending, waited for by a hand-out of the thread to its agent's own app: two runs of a session must not overlap)
     if (!lp.dead) {
       const p = Promise.race([new Promise((done) => (lp.proc.exitCode !== null || lp.proc.signalCode !== null ? done() : lp.proc.once("exit", () => done()))), new Promise((r) => setTimeout(r, 6000))]);
-      this.exiting.set(id, p);
-      void p.then(() => this.exiting.get(id) === p && this.exiting.delete(id));
+      const was = this.exiting.get(id), all = was ? Promise.all([was, p]) : p;
+      this.exiting.set(id, all);
+      void all.then(() => this.exiting.get(id) === all && this.exiting.delete(id));
     }
     clearTimeout(lp.idle);
     lp.onEvent = lp.onClose = null;
@@ -1117,8 +1135,7 @@ export class Threads {
         if (this.running.get(id) !== run) return;
         // (an ACP agent ends its own process, and its turn then ends as stopped)
         if (run.hard) return void run.hard();
-        this.codexes.get(id)?.shutdown();
-        this.codexes.delete(id);
+        this.retireCodex(id);
         run.lp.onClose?.(1);
       };
       if (!asked) hard();
