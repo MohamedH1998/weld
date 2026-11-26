@@ -213,7 +213,7 @@ export const Bar = memo(function Bar({ editor, dark }: { editor: Editor; dark: b
               {live.slice(0, 3).map(({ b, t }) => (
                 <Capsule key={b.id} box={b} items={t?.items ?? []} running={t?.meta.status === "running" || openings.has(b.id)} error={!!t?.meta.error} title={b.text || t?.meta.title || "New thread"} cwd={t?.meta.cwd} onOpen={() => setReading(b.id)} />
               ))}
-              {live.length > 3 && <span className="ask-more">+{live.length - 3}</span>}
+              {live.length > 3 && <More hidden={live.slice(3).map(({ b, t }) => ({ id: b.id, title: b.text || t?.meta.title || "New thread", state: t?.meta.asking ? "ready" : t?.meta.status === "running" || openings.has(b.id) ? "working" : t?.meta.error ? "error" : "done" }))} open={setReading} />}
             </div>
           )
         )}
@@ -304,6 +304,35 @@ export const Bar = memo(function Bar({ editor, dark }: { editor: Editor; dark: b
     </div>
   );
 });
+
+/** The threads in the bar past the three shown: "+N", which opens a list of them to pick one from. */
+function More({ hidden, open }: { hidden: { id: Id; title: string; state: string }[]; open: (id: Id) => void }) {
+  const [on, setOn] = useState(false);
+  const here = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!on) return;
+    const away = (e: PointerEvent) => !here.current?.contains(e.target as Node) && setOn(false);
+    window.addEventListener("pointerdown", away, true);
+    return () => window.removeEventListener("pointerdown", away, true);
+  }, [on]);
+  return (
+    <div ref={here} className="ask-more-wrap">
+      <button type="button" className="ask-more ctl" aria-expanded={on} aria-label={`${hidden.length} more in the bar`} onMouseDown={(e) => e.preventDefault()} onClick={() => setOn((o) => !o)}>
+        +{hidden.length}
+      </button>
+      {on && (
+        <div className="live-menu ui-in ask-more-list" role="menu">
+          {hidden.map((h) => (
+            <button key={h.id} type="button" role="menuitem" onMouseDown={(e) => e.preventDefault()} onClick={() => (setOn(false), open(h.id))}>
+              <span className="live-dot" data-state={h.state === "done" ? "ready" : h.state} />
+              <span className="truncate">{h.title}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function Capsule({ box, items, running, error, title, cwd, onOpen }: { box: Box; items: Item[]; running: boolean; error: boolean; title: string; cwd?: string; onOpen: () => void }) {
   const { ask, text } = lineOf(items, running, cwd, error);

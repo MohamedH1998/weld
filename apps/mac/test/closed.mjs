@@ -15,12 +15,14 @@ export default async ({ page, shot }) => {
   await page.waitForFunction(() => !!window.__editor);
   await wait(1200);
   const capsules = () => E(() => [...document.querySelectorAll(".ask-capsule .ask-title")].map((x) => x.textContent));
+  // (asked, and waited for until that one is done: its own capsule, found by its title)
   const ask = async (words) => {
     await page.click(".ask-bar textarea");
     await page.keyboard.insertText(`say:${words}`);
     await page.keyboard.press("Enter");
-    for (let t = 0; t < 80 && !(await E(() => [...document.querySelectorAll(".ask-capsule")].some((c) => c.getAttribute("data-state") === "done"))); t++) await wait(250);
+    for (let t = 0; t < 80 && !(await E((w) => [...document.querySelectorAll(".ask-capsule")].some((c) => c.getAttribute("data-state") === "done" && c.textContent.includes(w)), `say:${words}`)); t++) await wait(250);
   };
+  const capsuleOf = (words) => page.locator(".ask-capsule", { hasText: `say:${words}` });
   await ask("The_Acme_API_plan");
   // read (so nothing is unread), put on the board, then closed with its X
   await page.click(".ask-capsule");
@@ -42,7 +44,7 @@ export default async ({ page, shot }) => {
   check("…and folded, it is still in the bar", (await capsules()).length === 1, await capsules());
   // a second thread, closed later, comes first
   await ask("The_Payments_review");
-  await page.click(".ask-capsule >> nth=0");
+  await capsuleOf("The_Payments_review").click();
   await wait(500);
   await page.click("text=Put on the board");
   await wait(800);
@@ -56,5 +58,22 @@ export default async ({ page, shot }) => {
   await page.waitForFunction(() => !!window.__editor);
   await wait(1500);
   const kept = await capsules();
-  check("after a reload, they are still in the bar", kept.length === 2, kept);
+  check("after a reload, they are still in the bar, in the same order", kept.length === 2 && /Payments/.test(kept[0] ?? "") && /Acme/.test(kept[1] ?? ""), kept);
+
+  // with the bar's three places taken by threads that have something to say, a thread closed is behind "+N", which
+  // opens the list of the rest to pick it from
+  for (const w of ["Queue_check", "Billing_check", "Cache_check"]) await ask(w);
+  const full = await capsules();
+  check("(three threads with news take the bar's three places)", full.length === 3 && full.every((x) => /check/.test(x)), full);
+  const more = page.locator(".ask-more");
+  check("…and the closed ones are behind +N", (await more.innerText().catch(() => "")) === "+2");
+  await more.click();
+  await wait(300);
+  const listed = await page.locator(".ask-more-list button").allInnerTexts();
+  check("+N opens a list of them, the latest closed first", listed.length === 2 && /Payments/.test(listed[0] ?? ""), listed);
+  await shot?.("more");
+  await page.locator(".ask-more-list button", { hasText: "Acme" }).click();
+  await wait(500);
+  const reading = await E(() => document.querySelector(".ask-reader")?.textContent ?? "");
+  check("…and picking one opens it", /Acme/.test(reading), reading.slice(0, 80));
 };
