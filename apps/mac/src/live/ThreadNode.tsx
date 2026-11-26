@@ -366,7 +366,8 @@ function partsOf(text: string): string[] {
   let cur: string[] = [], fence = "", blank = false;
   // (lines ended either way, \n or \r\n, are the same lines)
   for (const line of text.split(/\r?\n/)) {
-    const m = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    // (a fence may stand indented, as one inside a list item does)
+    const m = /^\s*(`{3,}|~{3,})(.*)$/.exec(line);
     const opens = !fence && !!m, closes = !!fence && !!m && m[1]![0] === fence[0] && m[1]!.length >= fence.length && !m[2]!.trim();
     // a new block starts after an empty line, at a line that cannot belong to what came before (not indented, not a list or quote going on)
     if (!fence && blank && line.trim() && !/^(\s|[-*+>|]|\d+[.)])/.test(line) && cur.length) {
@@ -400,8 +401,8 @@ const PreBlock = ({ children, node }: { children?: React.ReactNode; node?: { pos
   const at = node?.position, src = at && at.start.offset !== undefined && at.end.offset !== undefined ? text.slice(at.start.offset, at.end.offset) : "";
   // (closed: a line after its first of the same fence, at least as long, and nothing else; or an indented block, which
   // has no fence to wait for)
-  const open = /^ {0,3}(`{3,}|~{3,})/.exec(src), fence = open?.[1];
-  const closed = !fence || src.split("\n").slice(1).some((l) => { const m = /^ {0,3}(`{3,}|~{3,})\s*$/.exec(l); return !!m && m[1]![0] === fence[0] && m[1]!.length >= fence.length; });
+  const open = /^\s*(`{3,}|~{3,})/.exec(src), fence = open?.[1];
+  const closed = !fence || src.split(/\r?\n/).slice(1).some((l) => { const m = /^\s*(`{3,}|~{3,})\s*$/.exec(l); return !!m && m[1]![0] === fence[0] && m[1]!.length >= fence.length; });
   return <CodeBlock ready={!arriving || closed}>{children}</CodeBlock>;
 };
 const Part = memo(function Part({ text, open, arriving }: { text: string; open: (url: string) => void; arriving?: boolean }) {

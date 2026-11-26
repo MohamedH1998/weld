@@ -116,5 +116,18 @@ export default async ({ page, shot }) => {
   await wait(200);
   const got = await E(() => window.__copied.at(-1) ?? "");
   check("…and the copy holds all of it", /echo one/.test(got) && /echo two/.test(got), got);
+
+  // a fenced block inside a numbered list (opened at three spaces, closed at four), then a plain block after it: both
+  // whole, each copied entire
+  await page.keyboard.press("Escape");
+  const listed = "Steps:\\n\\n1._Start_it:\\n\\n___```sh\\n___npm_start\\n____```\\n\\nThen:\\n\\n```\\nStarting\\n\\nReady\\n```\\n\\nDone_listing.";
+  await page.click(".ask-bar textarea");
+  await page.keyboard.insertText(`say:${listed}`);
+  await page.keyboard.press("Enter");
+  for (let t = 0; t < 60 && !(await E(() => [...document.querySelectorAll(".ask-capsule")].some((c) => /Steps/.test(c.textContent) && c.getAttribute("data-state") === "done"))); t++) await wait(250);
+  await page.locator(".ask-capsule", { hasText: "Steps" }).click();
+  await wait(500);
+  const two = await E(() => [...document.querySelector(".ask-reader").querySelectorAll(".code-block pre")].map((p) => p.textContent));
+  check("a block in a list and one after it are both whole", two.length >= 2 && two.some((t) => /npm start/.test(t)) && two.some((t) => /Starting/.test(t) && /Ready/.test(t)), two);
 };
 
