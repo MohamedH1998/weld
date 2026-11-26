@@ -1751,7 +1751,8 @@ export class Editor {
   }
   /** Shapes picked along with a moving group that belong to nothing join it, alike in every moment (part of one change). */
   private join(g: Id) {
-    const s = this.store, sc = s.doc.scenes?.[g], loose = this.selected().filter((sh) => !sh.group);
+    // (a conversation, terminal or page picked along with it stays out: it is never a part of a drawing that plays)
+    const s = this.store, sc = s.doc.scenes?.[g], loose = this.selected().filter((sh) => !sh.group && !isLive(sh));
     if (!sc || !loose.length) return;
     const joined = loose.map((sh) => ({ ...sh, group: g }));
     s.put(...joined);
@@ -1786,15 +1787,17 @@ export class Editor {
   }
   /** Make what is selected move: it becomes one group, and gains a second moment to change. */
   animate() {
-    if (this.g.type !== "idle" || !this.store.sel.size) return;
+    // (a conversation, terminal or page picked along with it isn't made to move: it stays as it is)
+    const parts = this.selected().filter((sh) => !isLive(sh));
+    if (this.g.type !== "idle" || !parts.length) return;
     const s = this.store;
     this.stop();
     s.run(() => {
-      const groups = new Set(this.selected().map((sh) => sh.group ?? ""));
+      const groups = new Set(parts.map((sh) => sh.group ?? ""));
       let g = groups.size === 1 ? [...groups][0]! : "";
       if (!g) {
         g = newId();
-        s.put(...this.selected().map((sh) => ({ ...sh, group: g })));
+        s.put(...parts.map((sh) => ({ ...sh, group: g })));
       }
       if (s.doc.scenes?.[g]) return;
       const shapes = this.members(s.doc, g);
