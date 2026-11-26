@@ -202,6 +202,17 @@ export class Store {
   commit() {
     const p = this.pending;
     this.pending = null;
+    // (a shape the person picked up and put back just as it was is not theirs for that: it keeps what it was before)
+    if (p && this.markEdits) {
+      let shapes: Record<Id, Shape> | null = null;
+      for (const id of this.doc.order) {
+        const now = this.doc.shapes[id], was = p.doc.shapes[id];
+        if (!now?.edited || !was || was.edited) continue;
+        const { edited: _e, ...rest } = now;
+        if (alike(rest as Shape, was)) (shapes ??= { ...this.doc.shapes })[id] = was;
+      }
+      if (shapes) this.doc = { ...this.doc, shapes };
+    }
     // only a real difference is a step: something made and then removed
     // again within one intention (an abandoned empty text) leaves no trace
     if (p && !sameDoc(p.doc, this.doc)) {
@@ -317,8 +328,18 @@ export class Store {
   /** Put shapes down on someone else's behalf (an agent): no step to undo. They are written into every moment the
    *  person can step back or forward to, as if they had always been there: undoing is of the person's own steps, and
    *  only a step of theirs (moving one, removing one) changes them. */
+  /** Writes that are nobody's doing (an agent's, the board fitting words to a font): not marked as the person's. */
+  unmarked<T>(fn: () => T): T {
+    const was = this.foreign;
+    this.foreign = true;
+    try {
+      return fn();
+    } finally {
+      this.foreign = was;
+    }
+  }
   putForeign(...shapes: Shape[]) {
-    this.put(...shapes);
+    this.unmarked(() => this.put(...shapes));
     const into = (st: Step): Step => {
       const missing = shapes.filter((s) => !st.doc.shapes[s.id]);
       if (!missing.length) return st;
@@ -332,7 +353,7 @@ export class Store {
     if (this.pending) {
       const was = this.doc;
       this.doc = this.pending.doc;
-      this.put(...shapes);
+      this.unmarked(() => this.put(...shapes));
       this.pending = { ...this.pending, doc: this.doc };
       this.doc = was;
     }
@@ -358,10 +379,12 @@ export class Store {
     const next = { ...this.doc.shapes };
     const order = [...this.doc.order];
     let changed = false;
-    for (const s of shapes) {
-      const was = next[s.id];
+    for (const s0 of shapes) {
+      const was = next[s0.id];
       // a shape written back exactly as it was is not a change, and leaves no step to undo
-      if (was && alike(was, s)) continue;
+      if (was && alike(was, s0)) continue;
+      // (made or changed here, it is the person's, where the app keeps track: see markEdits)
+      const s = this.markEdits && !this.foreign && !s0.edited ? ({ ...s0, edited: true } as Shape) : s0;
       if (!was) order.push(s.id);
       next[s.id] = s;
       changed = true;
@@ -385,6 +408,10 @@ export class Store {
   /** Put a thread kept off the board onto it, as the box given, in every moment the person can step back or forward to. */
   /** Threads this window put on the board (a save made before that, shown later, does not take them back off). */
   private landed = new Set<Id>();
+  /** Mark what the person makes or changes as theirs (`edited`), so an agent leaves it be (the Mac app turns this on). */
+  markEdits = false;
+  /** Writing on an agent's behalf: what is put is not the person's. */
+  private foreign = false;
   land(box: Box) {
     this.landed.add(box.id);
     const { [box.id]: _gone, ...rest } = this.doc.away ?? {};

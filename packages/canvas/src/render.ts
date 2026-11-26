@@ -708,7 +708,8 @@ export interface Overlay {
   /** Hide handles while something is being dragged. */
   busy: boolean;
   /** Shapes outlined because they belong with what is in hand (what a thread has been connected to), in that thread's colour. */
-  kin?: { ids: Set<Id>; color: string } | null;
+  /** What belongs with the thing in hand, outlined faintly in its colour; `hot`, the one being pointed at, strongly. */
+  kin?: { ids: Set<Id>; color: string; hot?: Set<Id> } | null;
   /** What a press would point at, while talking to a thread (see live/pick.ts). */
   aim?: { ids: Set<Id>; color: string } | null;
   /** What an agent has just drawn or changed, glowing in its colour for a moment. */
@@ -722,6 +723,9 @@ export const emptyOverlay = (): Overlay => ({
 export const HANDLE = 8;
 export const STUB_OUT = 20;
 /** The four quick-create stubs of a box, in world points: right, bottom, left, top. */
+/** A sheet the faint line round a shape is cut out on, kept from one drawing to the next. */
+let ringSheet: HTMLCanvasElement | undefined;
+
 export function stubPoints(b: Rect, z: number): Pt[] {
   const o = STUB_OUT / z;
   return [
@@ -1167,7 +1171,49 @@ export function render(
     }
   }
 
-  const outline = (s: Shape, width: number, color: string) => {
+  // (`gap`: drawn that far outside the shape, clear of its own edge, so a thin line still reads as the shape's)
+  const outline = (s: Shape, width: number, color: string, gap = 0) => {
+    const own = (c: CanvasRenderingContext2D, r: Rect, b: Box) => kindPath(c, { ...r, kind: b.kind, notch: b.notch, head: b.head, dips: b.dips, fine: b.fine, text: b.text, levels: b.levels }, 8 * z);
+    // the shape's own outline; or a line `gap` away from it all round, following its own shape (corners, notches and
+    // all): its outline drawn wide, less the part within `gap` of it and the shape itself, on a sheet of its own
+    const around = (r: Rect, b: Box) => {
+      if (!gap || typeof document === "undefined") return (own(ctx, r, b), ctx.stroke());
+      // (only the patch of the sheet the line can reach is cleared and laid down: the shape's box, the line's width beyond
+      // it, turned as it is turned and in the canvas's own pixels; a shape out of view costs nothing)
+      const m = ctx.getTransform(), pad = gap + width + 2;
+      const xs: number[] = [], ys: number[] = [];
+      for (const [px, py] of [[r.x - pad, r.y - pad], [r.x + r.w + pad, r.y - pad], [r.x - pad, r.y + r.h + pad], [r.x + r.w + pad, r.y + r.h + pad]] as const) (xs.push(m.a * px + m.c * py + m.e), ys.push(m.b * px + m.d * py + m.f));
+      const W = ctx.canvas.width, H = ctx.canvas.height;
+      const x0 = Math.max(0, Math.floor(Math.min(...xs))), y0 = Math.max(0, Math.floor(Math.min(...ys))), x1 = Math.min(W, Math.ceil(Math.max(...xs))), y1 = Math.min(H, Math.ceil(Math.max(...ys)));
+      if (x1 <= x0 || y1 <= y0) return;
+      // (the sheet is the patch's own size, its corner at the patch's: it grows to the largest patch asked of it, never
+      // to the window's)
+      const pw = x1 - x0, ph = y1 - y0;
+      const c = (ringSheet ??= document.createElement("canvas")), k = c.getContext("2d")!;
+      if (c.width < pw || c.height < ph) (c.width = Math.max(c.width, pw)), (c.height = Math.max(c.height, ph));
+      k.setTransform(1, 0, 0, 1, 0, 0);
+      k.clearRect(0, 0, pw, ph);
+      k.save();
+      k.beginPath();
+      k.rect(0, 0, pw, ph);
+      k.clip();
+      k.setTransform(m.a, m.b, m.c, m.d, m.e - x0, m.f - y0);
+      own(k, r, b);
+      k.lineJoin = "round";
+      k.strokeStyle = color;
+      k.lineWidth = (gap + width / 2) * 2;
+      k.stroke();
+      k.globalCompositeOperation = "destination-out";
+      k.lineWidth = (gap - width / 2) * 2;
+      k.stroke();
+      k.fill();
+      k.globalCompositeOperation = "source-over";
+      k.restore();
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.drawImage(c, 0, 0, pw, ph, x0, y0, pw, ph);
+      ctx.restore();
+    };
     ctx.lineWidth = width;
     ctx.strokeStyle = color;
     if (!isArrow(s) && s.rot) {
@@ -1176,15 +1222,11 @@ export function render(
       ctx.translate(cx, cy);
       ctx.rotate(s.rot);
       ctx.translate(-cx, -cy);
-      if (isBox(s)) {
-        kindPath(ctx, { ...r, kind: s.kind, notch: s.notch, head: s.head, dips: s.dips, fine: s.fine, text: s.text, levels: s.levels }, 8 * z);
-        ctx.stroke();
-      } else ctx.strokeRect(r.x - 4, r.y - 2, r.w + 8, r.h + 4);
+      if (isBox(s)) around(r, s);
+      else ctx.strokeRect(r.x - 4, r.y - 2, r.w + 8, r.h + 4);
       ctx.restore();
-    } else if (isBox(s)) {
-      kindPath(ctx, { ...sr(s), kind: s.kind, notch: s.notch, head: s.head, dips: s.dips, fine: s.fine, text: s.text, levels: s.levels }, 8 * z);
-      ctx.stroke();
-    } else if (isText(s)) {
+    } else if (isBox(s)) around(sr(s), s);
+    else if (isText(s)) {
       const r = sr(s);
       ctx.strokeRect(Math.round(r.x - 4) + 0.5, Math.round(r.y - 2) + 0.5, Math.round(r.w + 8), Math.round(r.h + 4));
     } else {
@@ -1223,7 +1265,7 @@ export function render(
   if (o.kin && !o.busy)
     for (const id of o.kin.ids) {
       const s = doc.shapes[id];
-      if (s && !isArrow(s) && s.kind !== "frame" && s.kind !== "boundary" && !sel.has(id)) outline(s, 2, o.kin.color);
+      if (s && !isArrow(s) && s.kind !== "frame" && s.kind !== "boundary" && !sel.has(id)) o.kin.hot?.has(id) ? outline(s, 2, o.kin.color) : outline(s, 1.5, withAlpha(o.kin.color, 0.55), 4);
     }
 
   // while it plays, a selected part that is not in the picture has no outline standing where it would be

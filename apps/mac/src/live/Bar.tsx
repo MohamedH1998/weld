@@ -177,13 +177,14 @@ export const Bar = memo(function Bar({ editor, dark }: { editor: Editor; dark: b
     setText("");
   };
 
-  // the threads kept here that have something to say: at work, waiting for the person, or done and not yet read
+  // the threads kept here that have something to say (at work, in the background too, waiting for the person, or done and
+  // not yet read), then those the person closed, sent back here by its X, the latest first: a thread closed is in the
+  // bar, never just gone
   const onlyBehind = (id: Id, t: ReturnType<typeof threads.get>) => !openings.has(id) && !!t && !!t.meta.background?.length && t.meta.status !== "running" && !t.meta.asking && !t.meta.unread && !t.meta.error;
-  const live = away
-    .map((b) => ({ b, t: threads.get(b.id) }))
-    .filter(({ b, t }) => openings.has(b.id) || (t && (t.meta.status === "running" || t.meta.background?.length || t.meta.asking || t.meta.unread || t.meta.error)))
-    // (one only busy in the background goes after the rest: one asking the person, or answering, is never behind the +N)
-    .sort((x, y) => Number(onlyBehind(x.b.id, x.t)) - Number(onlyBehind(y.b.id, y.t)));
+  const saying = ({ b, t }: { b: Box; t: ReturnType<typeof threads.get> }) => openings.has(b.id) || !!(t && (t.meta.status === "running" || t.meta.background?.length || t.meta.asking || t.meta.unread || t.meta.error));
+  const all = away.map((b) => ({ b, t: threads.get(b.id) }));
+  // (one only busy in the background goes after the rest: one asking the person, or answering, is never behind the +N)
+  const live = [...all.filter(saying).sort((x, y) => Number(onlyBehind(x.b.id, x.t)) - Number(onlyBehind(y.b.id, y.t))), ...all.filter((x) => !saying(x) && x.b.live?.closed).sort((x, y) => (y.b.live!.closed ?? 0) - (x.b.live!.closed ?? 0))];
   const empty = store.doc.order.length === 0 && away.length === 0 && smiths.size === 0 && store.tool === "select" && !store.busy;
   const open = reading ? awayBox(editor, reading) : undefined;
   // (with no agent yet: the card offering them, on a board that is empty but for the terminals it opened; elsewhere, Settings)
@@ -215,7 +216,7 @@ export const Bar = memo(function Bar({ editor, dark }: { editor: Editor; dark: b
               {live.slice(0, 3).map(({ b, t }) => (
                 <Capsule key={b.id} box={b} items={t?.items ?? []} behind={t?.meta.status === "running" || t?.meta.error || t?.meta.unread ? undefined : t?.meta.background} running={t?.meta.status === "running" || openings.has(b.id)} error={!!t?.meta.error} title={b.text || t?.meta.title || "New thread"} cwd={t?.meta.cwd} onOpen={() => setReading(b.id)} />
               ))}
-              {live.length > 3 && <span className="ask-more">+{live.length - 3}</span>}
+              {live.length > 3 && <More hidden={live.slice(3).map(({ b, t }) => ({ id: b.id, title: b.text || t?.meta.title || "New thread", state: t?.meta.asking ? "ready" : t?.meta.status === "running" || openings.has(b.id) ? "working" : t?.meta.error ? "error" : t?.meta.unread ? "done" : t?.meta.background?.length ? "working" : "done" }))} open={setReading} />}
             </div>
           )
         )}
@@ -306,6 +307,38 @@ export const Bar = memo(function Bar({ editor, dark }: { editor: Editor; dark: b
     </div>
   );
 });
+
+/** The threads in the bar past the three shown: "+N", which opens a list of them to pick one from. */
+function More({ hidden, open }: { hidden: { id: Id; title: string; state: string }[]; open: (id: Id) => void }) {
+  const [on, setOn] = useState(false);
+  const here = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!on) return;
+    const away = (e: PointerEvent) => !here.current?.contains(e.target as Node) && setOn(false);
+    // (Escape closes the list, and only the list: the board's selection is left as it is)
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && (e.preventDefault(), e.stopImmediatePropagation(), setOn(false));
+    window.addEventListener("pointerdown", away, true);
+    window.addEventListener("keydown", esc, true);
+    return () => (window.removeEventListener("pointerdown", away, true), window.removeEventListener("keydown", esc, true));
+  }, [on]);
+  return (
+    <div ref={here} className="ask-more-wrap">
+      <button type="button" className="ask-more ctl" aria-expanded={on} aria-label={`${hidden.length} more in the bar`} onMouseDown={(e) => e.preventDefault()} onClick={() => setOn((o) => !o)}>
+        +{hidden.length}
+      </button>
+      {on && (
+        <div className="live-menu ui-in ask-more-list" role="menu">
+          {hidden.map((h) => (
+            <button key={h.id} type="button" role="menuitem" onMouseDown={(e) => e.preventDefault()} onClick={() => (setOn(false), open(h.id))}>
+              <span className="live-dot" data-state={h.state === "done" ? "ready" : h.state} />
+              <span className="truncate">{h.title}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function Capsule({ box, items, running, behind, error, title, cwd, onOpen }: { box: Box; items: Item[]; running: boolean; behind?: { what: string }[]; error: boolean; title: string; cwd?: string; onOpen: () => void }) {
   const { ask, text: said } = lineOf(items, running, cwd, error);
