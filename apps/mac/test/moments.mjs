@@ -97,6 +97,41 @@ export default async ({ app, page, out }) => {
     const d2 = st.doc;
     return { box: d2.shapes.sb1?.group, term: d2.shapes.st1?.group ?? null, whole: d2.order.filter((id) => d2.shapes[id]?.group === g).every((id) => st.sel.has(id)) && !st.sel.has("st1"), scene: ed.sceneGroup };
   }, g4);
+  // animated together with a still group holding a box and a terminal: the terminal stands apart; the drawing and it, picked, still show its moments
+  const anim = await E(() => {
+    const ed = window.__editor, st = ed.store;
+    st.run(() => { st.put({ id: "ab1", kind: "rect", x: 9000, y: 0, w: 160, h: 80, text: "Acme", tone: "ink", fill: "tint", group: "sg2" }); st.put({ id: "at1", kind: "terminal", x: 9300, y: 0, w: 400, h: 260, text: "", tone: "ink", fill: "none", group: "sg2", live: {} }); st.put({ id: "ab2", kind: "rect", x: 9000, y: 200, w: 160, h: 80, text: "Loose", tone: "ink", fill: "tint" }); });
+    st.select(["ab1", "at1", "ab2"]);
+    ed.animate();
+    const d = st.doc, g = d.shapes.ab1.group;
+    ed.leave?.();
+    st.select(["ab1", "ab2", "at1"]);
+    return { g, same: d.shapes.ab2.group === g, term: d.shapes.at1.group ?? null, scene: !!d.scenes?.[g], shown: ed.sceneGroup };
+  });
+  check("animated with a still group holding a terminal: the terminal stands apart, and picked with the drawing its moments still show", anim.scene && anim.same && anim.term === null && anim.shown === anim.g, anim);
+  // a drawing wired to a terminal that has since moved, copied with it: the copy's wire stays at the terminal through its moments
+  const jump = await E(() => {
+    const ed = window.__editor, st = ed.store;
+    st.run(() => { st.put({ id: "wb1", kind: "rect", x: 12000, y: 0, w: 160, h: 80, text: "Acme", tone: "ink", fill: "tint" }); st.put({ id: "wt1", kind: "terminal", x: 12300, y: 0, w: 400, h: 260, text: "", tone: "ink", fill: "none", live: {} }); st.put({ id: "ww1", kind: "arrow", tone: "ink", a: { x: 12160, y: 40, bind: { id: "wb1", ax: 1, ay: 0.5 } }, b: { x: 12300, y: 130, bind: { id: "wt1", ax: 0, ay: 0.5 } } }); });
+    st.select(["wb1", "ww1"]);
+    ed.animate();
+    ed.leave?.();
+    const g = st.doc.shapes.wb1.group;
+    // the terminal moved, and the wire follows it on the board
+    st.run(() => { st.patch("wt1", { y: 550 }); st.patch("ww1", { b: { x: 12300, y: 680, bind: { id: "wt1", ax: 0, ay: 0.5 } } }); });
+    const before = new Set(Object.keys(st.doc.shapes));
+    st.select(["wb1", "ww1", "wt1"]);
+    ed.duplicate();
+    const d = st.doc, made = Object.keys(d.shapes).filter((id) => !before.has(id)).map((id) => d.shapes[id]);
+    const w = made.find((x) => x.kind === "arrow");
+    if (!w) return { made: made.map((x) => x.kind) };
+    const t = made.find((x) => x.kind === "terminal"), y0 = t.y + t.h * 0.5;
+    st.select(made.filter((x) => x.group === w.group).map((x) => x.id));
+    ed.showMoment(w.group, 1); ed.showMoment(w.group, 0);
+    const y1 = st.doc.shapes[w.id]?.b?.y, ys = (st.doc.scenes[w.group]?.moments ?? []).map((m) => m.shapes.find((x) => x.id === w.id)?.b?.y);
+    return { y0, y1, ys, g };
+  });
+  check("a drawing wired to a terminal since moved, duplicated with it: the copy's wire stays at the terminal through its moments", jump.y0 !== undefined && Math.abs(jump.y1 - jump.y0) < 1 && (jump.ys ?? []).every((y) => Math.abs(y - jump.y0) < 1), jump);
   check("grouped with a still group holding a box and a terminal: the box joins, the terminal stands apart, the moving drawing stays picked", grouped.box === g4 && grouped.term === null && grouped.whole && grouped.scene === g4, grouped);
   // a wire from a drawing that plays to a conversation stays joined to it, saved and opened twice, stepping through it
   const joined = await E(([g, T]) => {
