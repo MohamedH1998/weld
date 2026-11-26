@@ -99,5 +99,22 @@ export default async ({ page, shot }) => {
   check("a four-backtick block holding a three-backtick example has no button until its own fence closes", seenOpen && !early, { seenOpen, early });
   const whole = await E(() => { const r = document.querySelector(".ask-reader"), last = [...r.querySelectorAll(".prose-live")].at(-1); return { blocks: last.querySelectorAll(".code-block").length, buttons: last.querySelectorAll(".code-copy").length, text: last.querySelector(".code-block pre")?.textContent ?? "" }; });
   check("…and once done it is one block, with one button, holding all of it", whole.blocks === 1 && whole.buttons === 1 && whole.text.includes("echo one") && (whole.text.match(/goes here/g) ?? []).length === 10, whole);
+
+  // an answer whose lines end \r\n (a blank line in its block): one block, one button, all of it copied
+  await page.keyboard.press("Escape");
+  await E(() => { window.__copied = []; Object.defineProperty(navigator, "clipboard", { value: { writeText: async (t) => void window.__copied.push(t) }, configurable: true }); });
+  const crlf = "Windows_lines:\\r\\n\\r\\n```sh\\r\\necho_one\\r\\n\\r\\necho_two\\r\\n```\\r\\n\\r\\nDone_with_crlf.";
+  await page.click(".ask-bar textarea");
+  await page.keyboard.insertText(`say:${crlf}`);
+  await page.keyboard.press("Enter");
+  for (let t = 0; t < 60 && !(await E(() => [...document.querySelectorAll(".ask-capsule")].some((c) => /Windows/.test(c.textContent) && c.getAttribute("data-state") === "done"))); t++) await wait(250);
+  await page.locator(".ask-capsule", { hasText: "Windows" }).click();
+  await wait(500);
+  const cr = await E(() => { const last = [...document.querySelector(".ask-reader").querySelectorAll(".prose-live")].at(-1); return { blocks: last.querySelectorAll(".code-block").length, buttons: last.querySelectorAll(".code-copy").length }; });
+  check("lines ended \\r\\n: one block, one button", cr.blocks === 1 && cr.buttons === 1, cr);
+  await E(() => document.querySelector(".ask-reader .prose-live:last-child .code-copy, .ask-reader .code-copy:last-of-type")?.click());
+  await wait(200);
+  const got = await E(() => window.__copied.at(-1) ?? "");
+  check("…and the copy holds all of it", /echo one/.test(got) && /echo two/.test(got), got);
 };
 

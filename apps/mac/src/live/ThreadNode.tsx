@@ -364,7 +364,8 @@ function partsOf(text: string): string[] {
   const out: string[] = [];
   // (inside a fenced block until a fence of the same mark, at least as long, closes it: one inside it is its words)
   let cur: string[] = [], fence = "", blank = false;
-  for (const line of text.split("\n")) {
+  // (lines ended either way, \n or \r\n, are the same lines)
+  for (const line of text.split(/\r?\n/)) {
     const m = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
     const opens = !fence && !!m, closes = !!fence && !!m && m[1]![0] === fence[0] && m[1]!.length >= fence.length && !m[2]!.trim();
     // a new block starts after an empty line, at a line that cannot belong to what came before (not indented, not a list or quote going on)
