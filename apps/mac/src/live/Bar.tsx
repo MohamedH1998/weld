@@ -330,7 +330,9 @@ function Reader({ box, editor, dark, close }: { box: Box; editor: Editor; dark: 
         <button type="button" className="live-chip ctl" onMouseDown={(e) => e.preventDefault()} onClick={() => landThread(editor, box.id)}>Put on the board</button>
         <button type="button" className="live-chip ctl" onMouseDown={(e) => e.preventDefault()} onClick={close}>Fold</button>
       </div>
-      <div className="ask-reader-sheet">
+      {/* (open, it is the conversation in hand: what is inside takes the pointer, to scroll and to select, as a selected
+          thread's does on the board) */}
+      <div className="ask-reader-sheet is-active">
         <ThreadNode box={box} editor={editor} active far={false} dark={dark} />
       </div>
     </div>

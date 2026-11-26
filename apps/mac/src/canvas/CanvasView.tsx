@@ -535,7 +535,8 @@ export function CanvasView() {
     });
     // copy, cut and paste go through the system clipboard
     const onCopy = (e: ClipboardEvent) => {
-      if (elsewhere(e.target) || !store.sel.size) return;
+      // (words selected anywhere in the window are what is copied, whatever is selected on the board)
+      if (elsewhere(e.target) || !store.sel.size || window.getSelection()?.isCollapsed === false) return;
       e.preventDefault();
       e.clipboardData?.setData("text/plain", editor.serialize());
       editor.copy();
