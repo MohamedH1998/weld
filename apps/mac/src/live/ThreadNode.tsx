@@ -61,13 +61,15 @@ function Sees({ editor, id }: { editor: NodeProps["editor"]; id: Id }) {
   if (!keys.length) return null;
   const refs = keys.map((k) => resolve(editor, k)!);
   const named = (r: Ref) => r.label;
+  // (pointing at one here outlines it clearly on the board; the rest stay faint)
+  const point = (ids: Id[] | null) => window.dispatchEvent(new CustomEvent("weld:kin-hot", { detail: ids }));
   return (
     <div className="thread-sees">
       {keys.map((k, i) => {
         const r = refs[i]!;
         const I = ICONS[r.kind];
         return (
-          <span key={k} className="thread-see">
+          <span key={k} className="thread-see" onMouseEnter={() => point(r.ids)} onMouseLeave={() => point(null)} onFocus={() => point(r.ids)} onBlur={() => point(null)}>
             <button type="button" className="ctl" title={r.sub} onMouseDown={(e) => e.preventDefault()} onClick={() => editor.fit(r.ids)}>
               <I size={11} />
               <span className="truncate">{named(r)}</span>

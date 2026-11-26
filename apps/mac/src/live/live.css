@@ -342,8 +342,9 @@
 /* far off, a thread's own colour runs along its top edge, and along the top of everything it made (near, the dot by a
    thread's name and the owner chip on what it made say whose it is) */
 .live-plane[data-far] .live-node[style*="--hue"] > .live-sheet::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 14px; background: var(--hue); border-radius: 12px 12px 0 0; z-index: 3; pointer-events: none; }
-/* what belongs with the one in hand is outlined in its colour */
-.live-node.is-kin > .live-sheet { box-shadow: 0 0 0 2px var(--kin, var(--hue, var(--live-accent))), 0 0 0 6px color-mix(in srgb, var(--kin, var(--hue, var(--live-accent))) 16%, transparent); }
+/* what belongs with the one in hand is outlined, faintly, in its colour; the one pointed at from the thread's list, clearly */
+.live-node.is-kin > .live-sheet { outline: 1.5px solid color-mix(in srgb, var(--kin, var(--hue, var(--live-accent))) 55%, transparent); outline-offset: 4px; }
+.live-node.is-kin.is-hot > .live-sheet { outline: none; box-shadow: 0 0 0 2px var(--kin, var(--hue, var(--live-accent))), 0 0 0 6px color-mix(in srgb, var(--kin, var(--hue, var(--live-accent))) 16%, transparent); }
 /* another thread working in the same folder as the one in hand: a dashed edge (they change the same files) */
 .live-node.is-peer > .live-sheet { outline: 1.5px dashed color-mix(in srgb, var(--live-ink) 45%, transparent); outline-offset: 4px; }
 .live-plane[data-far] .live-node.is-peer > .live-sheet { outline-width: 4px; outline-offset: 10px; }

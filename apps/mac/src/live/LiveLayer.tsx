@@ -81,11 +81,20 @@ export const LiveLayer = memo(function LiveLayer({ editor, dark }: { editor: Edi
     return { ids, color };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [one, store.doc]);
+  // the one being pointed at in the thread's list of what it sees (hovered or focused there): outlined clearly
+  const [hot, setHot] = useState<Set<Id>>(() => new Set());
+  useEffect(() => {
+    const on = (e: Event) => setHot(new Set((e as CustomEvent<Id[] | null>).detail ?? []));
+    window.addEventListener("weld:kin-hot", on);
+    return () => window.removeEventListener("weld:kin-hot", on);
+  }, []);
+  // (another thing taken in hand: nothing is pointed at any more, whatever the list it was pointed from)
+  useEffect(() => setHot(new Set()), [one]);
   useEffect(() => {
     const drawn = new Set([...linked.ids].filter((x) => !isLive(store.doc.shapes[x])));
-    editor.overlay.kin = drawn.size && linked.color ? { ids: drawn, color: linked.color } : null;
+    editor.overlay.kin = drawn.size && linked.color ? { ids: drawn, color: linked.color, hot } : null;
     editor.invalidate();
-  }, [linked, editor, store]);
+  }, [linked, editor, store, hot]);
   // which threads are on the board, told to the app whenever that changes (T3 Code is offered only these)
   // (and those kept off the board, read from the bar: they are on it as much as any)
   const away = store.doc.away;
@@ -385,15 +394,15 @@ export const LiveLayer = memo(function LiveLayer({ editor, dark }: { editor: Edi
         style={{ width: 0, height: 0 }}
       >
         {boxes.map((b) => (
-          <Slot key={b.id} box={b} editor={editor} active={activeId === b.id} far={far} dark={dark} keep={alive.current.has(b.id)} kin={(!!family && b.id !== one && ownerOf(editor, b.id) === family) || linked.ids.has(b.id)} kinHue={linked.ids.has(b.id) ? (linked.color ?? undefined) : undefined} hue={ownerOf(editor, b.id) ? hueOf(editor, ownerOf(editor, b.id)!) : undefined} peer={peers.has(b.id)} />
+          <Slot key={b.id} box={b} editor={editor} active={activeId === b.id} far={far} dark={dark} keep={alive.current.has(b.id)} kin={(!!family && b.id !== one && ownerOf(editor, b.id) === family) || linked.ids.has(b.id)} hot={hot.has(b.id)} kinHue={linked.ids.has(b.id) ? (linked.color ?? undefined) : undefined} hue={ownerOf(editor, b.id) ? hueOf(editor, ownerOf(editor, b.id)!) : undefined} peer={peers.has(b.id)} />
         ))}
       </div>
     </div>
   );
 });
 
-const Slot = memo(function Slot(p: NodeProps & { keep: boolean; kin: boolean; hue?: string; kinHue?: string; peer?: boolean }) {
-  const { box, active, kin, hue, kinHue, peer } = p;
+const Slot = memo(function Slot(p: NodeProps & { keep: boolean; kin: boolean; hot?: boolean; hue?: string; kinHue?: string; peer?: boolean }) {
+  const { box, active, kin, hot, hue, kinHue, peer } = p;
   // appears in place: a thing just put down settles in, one that was already there does not
   const [fresh] = useState(() => !p.keep);
   return (
@@ -401,7 +410,7 @@ const Slot = memo(function Slot(p: NodeProps & { keep: boolean; kin: boolean; hu
       data-live={box.id}
       data-kind={box.kind}
       data-active={active || undefined}
-      className={`live-node absolute ${fresh ? "live-in" : ""} ${active ? "is-active" : ""} ${kin ? "is-kin" : ""} ${peer ? "is-peer" : ""}`}
+      className={`live-node absolute ${fresh ? "live-in" : ""} ${active ? "is-active" : ""} ${kin ? "is-kin" : ""} ${kin && hot ? "is-hot" : ""} ${peer ? "is-peer" : ""}`}
       style={{ left: box.x, top: box.y, width: box.w, height: box.h, ...(hue ? { ["--hue" as string]: hue } : {}), ...(kinHue ? { ["--kin" as string]: kinHue } : {}) }}
       onPointerDownCapture={(e) => {
         // talking to another thread with its @ list open, or with ⌘ held: this is pointed at, not taken in hand

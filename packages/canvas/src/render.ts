@@ -708,7 +708,8 @@ export interface Overlay {
   /** Hide handles while something is being dragged. */
   busy: boolean;
   /** Shapes outlined because they belong with what is in hand (what a thread has been connected to), in that thread's colour. */
-  kin?: { ids: Set<Id>; color: string } | null;
+  /** What belongs with the thing in hand, outlined faintly in its colour; `hot`, the one being pointed at, strongly. */
+  kin?: { ids: Set<Id>; color: string; hot?: Set<Id> } | null;
   /** What a press would point at, while talking to a thread (see live/pick.ts). */
   aim?: { ids: Set<Id>; color: string } | null;
   /** What an agent has just drawn or changed, glowing in its colour for a moment. */
@@ -1167,7 +1168,8 @@ export function render(
     }
   }
 
-  const outline = (s: Shape, width: number, color: string) => {
+  // (`gap`: drawn that far outside the shape, clear of its own edge, so a thin line still reads as the shape's)
+  const outline = (s: Shape, width: number, color: string, gap = 0) => {
     ctx.lineWidth = width;
     ctx.strokeStyle = color;
     if (!isArrow(s) && s.rot) {
@@ -1182,7 +1184,8 @@ export function render(
       } else ctx.strokeRect(r.x - 4, r.y - 2, r.w + 8, r.h + 4);
       ctx.restore();
     } else if (isBox(s)) {
-      kindPath(ctx, { ...sr(s), kind: s.kind, notch: s.notch, head: s.head, dips: s.dips, fine: s.fine, text: s.text, levels: s.levels }, 8 * z);
+      const r = sr(s);
+      kindPath(ctx, { x: r.x - gap, y: r.y - gap, w: r.w + gap * 2, h: r.h + gap * 2, kind: s.kind, notch: s.notch, head: s.head, dips: s.dips, fine: s.fine, text: s.text, levels: s.levels }, 8 * z + gap);
       ctx.stroke();
     } else if (isText(s)) {
       const r = sr(s);
@@ -1223,7 +1226,7 @@ export function render(
   if (o.kin && !o.busy)
     for (const id of o.kin.ids) {
       const s = doc.shapes[id];
-      if (s && !isArrow(s) && s.kind !== "frame" && s.kind !== "boundary" && !sel.has(id)) outline(s, 2, o.kin.color);
+      if (s && !isArrow(s) && s.kind !== "frame" && s.kind !== "boundary" && !sel.has(id)) o.kin.hot?.has(id) ? outline(s, 2, o.kin.color) : outline(s, 1.5, withAlpha(o.kin.color, 0.55), 4);
     }
 
   // while it plays, a selected part that is not in the picture has no outline standing where it would be
