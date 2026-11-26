@@ -60,7 +60,24 @@ export default async ({ app, page, out }) => {
   const mended = await E(([g, T]) => { const d = window.__editor.store.doc; return { group: d.shapes[T]?.group ?? null, inMoments: (d.scenes?.[g]?.moments ?? []).some((m) => m.shapes.some((x) => x.id === T)), scene: !!d.scenes?.[g] }; }, [g3, T]);
   check("a board saved with its conversation inside a drawing that plays opens mended (the drawing still plays)", mended.group === null && !mended.inMoments && mended.scene, mended);
   const re3 = weld(["draw", "-"], JSON.stringify({ story: { ...story, replace: `#${g3}` } }));
-  check("…and the agent can redraw it again", !/not done|not connected|failed/.test(re3) && /= #\w+/.test(re3), re3);
+  const g4 = /= #(\w+)/.exec(re3)?.[1];
+  check("…and the agent can redraw it again", !/not done|not connected|failed/.test(re3) && !!g4 && g4 !== g3, re3);
+  // Group is offered only when it would take something in: a whole drawing that plays and a conversation, not
+  await E(([g, T]) => { const ed = window.__editor, d = ed.store.doc; ed.store.select([...d.order.filter((id) => d.shapes[id]?.group === g), T]); }, [g4, T]);
+  check("Group isn't offered for a drawing that plays and only a conversation beside it", (await E(() => window.__editor.canGroup)) === false);
+  // a wire from a drawing that plays to a conversation stays joined to it, saved and opened twice, stepping through it
+  const joined = await E(([g, T]) => {
+    const st = window.__editor.store, d = st.doc, part = d.order.find((id) => d.shapes[id]?.group === g && d.shapes[id].kind !== "arrow" && d.shapes[id].kind !== "text" && "w" in d.shapes[id]);
+    const wire = { id: "wire1", kind: "arrow", group: g, tone: "ink", a: { x: 0, y: 0, bind: { id: part, ax: 1, ay: 0.5 } }, b: { x: 0, y: 0, bind: { id: T, ax: 0, ay: 0.5 } } };
+    st.setDoc({ ...d, shapes: { ...d.shapes, wire1: wire }, order: [...d.order, "wire1"], scenes: { ...d.scenes, [g]: { ...d.scenes[g], moments: d.scenes[g].moments.map((m) => ({ ...m, shapes: [...m.shapes, wire] })) } } });
+    st.emit();
+    return !!part;
+  }, [g4, T]);
+  for (let i = 0; i < 2; i++) { await wait(2500); await page.reload(); await wait(2500); }
+  await E((g) => { const ed = window.__editor, d = ed.store.doc; ed.store.select(d.order.filter((id) => d.shapes[id]?.group === g)); ed.showMoment(g, 1); ed.showMoment(g, 0); }, g4);
+  await wait(300);
+  const ends = await E((T) => { const d = window.__editor.store.doc, w = d.shapes.wire1; return { board: w?.b?.bind?.id === T, moments: Object.values(d.scenes ?? {}).flatMap((sc) => sc.moments).flatMap((m) => m.shapes).filter((x) => x.id === "wire1").every((x) => x.b?.bind?.id === T) }; }, T);
+  check("a wire from a drawing that plays to its conversation stays joined to it, opened twice and stepped through", joined && ends.board && ends.moments, ends);
   // and what the person drew stays out of its reach
   await E(() => { const st = window.__editor.store; st.run(() => st.put({ id: "mine1", kind: "rect", x: 3000, y: 0, w: 100, h: 60, text: "Mine", tone: "ink", fill: "tint" })); st.emit(); });
   const other = weld(["draw", "-"], JSON.stringify({ remove: ["#mine1"] }));

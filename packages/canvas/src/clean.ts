@@ -81,9 +81,11 @@ const picture = (v: unknown): { img: NonNullable<Box["img"]> } | null => {
 
 /** The well-formed shapes among `raw`, in the same order. Arrows may
  *  only be joined to boxes that are also in the list. */
-export function cleanShapes(raw: unknown): Shape[] {
+export function cleanShapes(raw: unknown, around: Shape[] = []): Shape[] {
   if (!Array.isArray(raw)) return [];
   const out: Shape[] = [], seen = new Set<string>(), boxes = new Set<string>(), words = new Set<string>();
+  // (what is beside these, which a wire among them may still be joined to: a moment's wire to a card on the board)
+  for (const x of around) if (x.kind === "text") words.add(x.id); else if ((BOX_KINDS as string[]).includes(x.kind)) boxes.add(x.id);
   const arrows: { at: number; v: Record<string, unknown> }[] = [];
   for (const v of raw) {
     if (!rec(v) || !goodId(v.id) || seen.has(v.id)) continue;
@@ -181,10 +183,12 @@ export function cleanDoc(raw: unknown): Doc {
   const shapes = raw.shapes;
   const list = cleanShapes((raw.order as unknown[]).map((id) => (typeof id === "string" ? shapes[id] : undefined)));
   const scenes: Record<string, Scene> = {};
+  // (a moment's wires may be joined to the board's conversations, terminals and pages, which are never in a moment)
+  const beside = list.filter((x) => LIVE_KINDS.has(x.kind));
   if (rec(raw.scenes)) for (const [g, sc] of Object.entries(raw.scenes)) {
     if (!goodId(g) || !rec(sc) || !Array.isArray(sc.moments)) continue;
     // (a conversation, terminal or page is never part of a drawing that plays: one that was is let go of it)
-    const moments = sc.moments.slice(0, 64).filter(rec).map((m): Moment => ({ id: goodId(m.id) ? m.id : `m${Math.random().toString(36).slice(2, 9)}`, shapes: cleanShapes(Array.isArray(m.shapes) ? m.shapes : []).filter((x) => !LIVE_KINDS.has(x.kind)), over: num(m.over) && m.over >= 0 && m.over <= 60000 ? m.over : 500, hold: num(m.hold) && m.hold >= 0 && m.hold <= 600000 ? m.hold : 1200, ...(m.ease === "spring" || m.ease === "even" ? { ease: m.ease } : {}) }));
+    const moments = sc.moments.slice(0, 64).filter(rec).map((m): Moment => ({ id: goodId(m.id) ? m.id : `m${Math.random().toString(36).slice(2, 9)}`, shapes: cleanShapes(Array.isArray(m.shapes) ? m.shapes : [], beside).filter((x) => !LIVE_KINDS.has(x.kind)), over: num(m.over) && m.over >= 0 && m.over <= 60000 ? m.over : 500, hold: num(m.hold) && m.hold >= 0 && m.hold <= 600000 ? m.hold : 1200, ...(m.ease === "spring" || m.ease === "even" ? { ease: m.ease } : {}) }));
     if (moments.length) scenes[g] = { moments, at: num(sc.at) && Number.isInteger(sc.at) && sc.at >= 0 && sc.at < moments.length ? sc.at : 0, ...(sc.once === true ? { once: true as const } : {}) };
   }
   for (let i = 0; i < list.length; i++) {

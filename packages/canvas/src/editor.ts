@@ -2284,7 +2284,9 @@ export class Editor {
     if (!(this.store.sel.size > 1 && new Set(this.selected().map((sh) => sh.group ?? sh.id)).size > 1)) return false;
     // an animated group can take more shapes in, whole; it cannot be split or merged with another that moves
     const scenes = this.store.doc.scenes ?? {}, touched = [...new Set(this.selected().map((sh) => sh.group).filter((g): g is Id => !!g && !!scenes[g]))];
-    return touched.length === 0 || (touched.length === 1 && this.members(this.store.doc, touched[0]!).every((m) => this.store.sel.has(m.id)));
+    if (touched.length === 0) return true;
+    // (and only with something it can take: a conversation, terminal or page stays out of one)
+    return touched.length === 1 && this.members(this.store.doc, touched[0]!).every((m) => this.store.sel.has(m.id)) && this.selected().some((sh) => sh.group !== touched[0] && !isLive(sh));
   }
   get canUngroup() {
     return this.selected().some((sh) => !!sh.group);
