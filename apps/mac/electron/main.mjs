@@ -6,7 +6,7 @@ import { createHash } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import { execFile } from "node:child_process";
 import { createHmac, randomBytes } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync, watch } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync, watch } from "node:fs";
 import { readdir } from "node:fs/promises";
 import http from "node:http";
 import os from "node:os";
@@ -51,6 +51,37 @@ function readJson(p, fallback) {
   }
 }
 /** Written beside the real file and moved over it, so a crash mid-write never leaves half a file. */
+/** The remembered choices. One that has never said which agents are on (a Weld that had threads before agents had to
+ *  be switched on, or whose choice was never written) takes them to be the ones its threads already run on: an agent a
+ *  thread is working with is never shown as off, nor new threads left with nothing to start on. */
+function settingsNow() {
+  const s = readJson(file("settings.json"), {});
+  if (Array.isArray(s.enabled) || s.agent) return s;
+  const used = [];
+  try {
+    // (a thread is kept whole in its .json, and what changed since in its .log, line by line)
+    const add = (a) => typeof a === "string" && a && !used.includes(a) && used.push(a);
+    for (const f of readdirSync(file("threads"))) {
+      if (f.endsWith(".json")) add(readJson(file("threads", f), null)?.meta?.agent);
+      else if (f.endsWith(".log"))
+        for (const line of readFileSync(file("threads", f), "utf8").split("\n")) {
+          if (!line.includes('"agent"')) continue;
+          try {
+            const o = JSON.parse(line);
+            add(o?.meta?.agent);
+          } catch {
+            /* a line cut short */
+          }
+        }
+    }
+  } catch {
+    /* no threads yet */
+  }
+  if (!used.length) return s;
+  const next = { ...s, enabled: used, agent: used.includes("claude") ? "claude" : used[0] };
+  writeJson(file("settings.json"), next);
+  return next;
+}
 function writeJson(p, value) {
   mkdirSync(path.dirname(p), { recursive: true });
   const tmp = `${p}.${process.pid}.tmp`;
@@ -1642,7 +1673,7 @@ function wire() {
       seed: TEST && process.env.WELD_SEED === "1",
       test: TEST,
       agents: { claude: !!agentWhich("claude"), codex: !!agentWhich("codex") },
-      settings: readJson(file("settings.json"), {}),
+      settings: settingsNow(),
       models: { codex: codexModels() },
     };
   });
