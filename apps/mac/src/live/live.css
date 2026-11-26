@@ -448,7 +448,11 @@
 .ask-title { font-weight: 500; color: var(--live-ink); white-space: nowrap; }
 .ask-line { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--live-sub); font-family: "DM Mono", ui-monospace, monospace; font-size: 11.5px; padding-right: 6px; }
 .ask-capsule[data-state="ready"] .ask-line { color: var(--live-ink); }
-.ask-more { align-self: center; font-size: 12px; color: var(--live-sub); }
+.ask-more-wrap { position: relative; align-self: center; }
+.ask-more { font-size: 12px; color: var(--live-sub); padding: 4px 8px; border-radius: 99px; }
+.ask-more:hover, .ask-more[aria-expanded="true"] { color: var(--live-ink); background: var(--live-tint-1, color-mix(in srgb, var(--live-ink) 6%, transparent)); }
+.ask-more-list { position: absolute; bottom: calc(100% + 6px); right: 0; min-width: 220px; max-width: 320px; max-height: 280px; overflow-y: auto; }
+.ask-more-list button { display: flex; align-items: center; gap: 8px; }
 .ask-reader { width: 100%; display: flex; flex-direction: column; gap: 6px; }
 .ask-reader-acts { display: flex; justify-content: flex-end; gap: 6px; }
 .ask-reader-acts .live-chip { background: var(--live-paper); box-shadow: 0 0 0 1px var(--live-line); }

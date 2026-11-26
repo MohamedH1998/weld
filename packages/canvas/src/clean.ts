@@ -67,6 +67,8 @@ const live = (v: unknown): { live?: Live } => {
   if (Array.isArray(v.sees)) out.sees = v.sees.filter((k): k is string => typeof k === "string" && k.length <= (k.startsWith("work:") ? 20000 : 200)).slice(0, 200);
   if (num(v.hue) && Number.isInteger(v.hue) && v.hue >= 0 && v.hue < 64) out.hue = v.hue;
   if (num(v.tall) && v.tall > 0 && v.tall < 1e5) out.tall = v.tall;
+  // (a time in ms: past the board's own limit for a place, so checked on its own)
+  if (typeof v.closed === "number" && Number.isFinite(v.closed) && v.closed > 0 && v.closed < 1e14) out.closed = Math.round(v.closed);
   return Object.keys(out).length ? { live: out } : {};
 };
 
