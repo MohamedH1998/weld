@@ -65,6 +65,25 @@ export default async ({ app, page, out }) => {
   // a terminal, page or conversation made while the drawing is stepped into isn't made part of it
   const madeIn = await E((g) => { const ed = window.__editor; ed.scope = g; const r = ["terminal", "browser", "thread", "rect"].map((k) => [k, ed.fresh(`t${k}`, k, { x: 0, y: 0, w: 300, h: 200 }).group ?? null]); ed.scope = null; return Object.fromEntries(r); }, g4);
   check("a terminal, page or conversation made while a drawing that plays is stepped into isn't made part of it (a box is)", madeIn.terminal === null && madeIn.browser === null && madeIn.thread === null && madeIn.rect === g4, madeIn);
+  const madeStill = await E(() => { const ed = window.__editor; ed.scope = "still1"; const g = ed.fresh("tstill", "terminal", { x: 0, y: 0, w: 300, h: 200 }).group ?? null; ed.scope = null; return g; });
+  check("…while one made in a group that stays still still joins it, as before", madeStill === "still1", madeStill);
+  // a drawing copied elsewhere with a terminal inside it, pasted: the terminal comes out of it, on show
+  const pasted = await E(() => {
+    const ed = window.__editor, before = new Set(Object.keys(ed.store.doc.shapes));
+    const box = { id: "cb1", kind: "rect", x: 5000, y: 0, w: 160, h: 80, text: "Acme", tone: "ink", fill: "tint", group: "cg1" };
+    const term = { id: "ct1", kind: "terminal", x: 5200, y: 0, w: 400, h: 260, text: "", tone: "ink", fill: "none", group: "cg1", live: {} };
+    const text = JSON.stringify({ canvas: 1, shapes: [box, term], scenes: { cg1: { at: 0, moments: [{ id: "cm1", over: 500, hold: 1200, shapes: [box, term] }, { id: "cm2", over: 500, hold: 1200, shapes: [{ ...box, x: 5050 }, term] }] } } });
+    ed.pasteText(text);
+    const d = ed.store.doc, made = Object.keys(d.shapes).filter((id) => !before.has(id)).map((id) => d.shapes[id]);
+    const t = made.find((x) => x.kind === "terminal"), b = made.find((x) => x.kind === "rect");
+    if (!t || !b) return { made: made.map((x) => x.kind) };
+    ed.store.select(made.filter((x) => x.group === b.group).map((x) => x.id));
+    ed.showMoment(b.group, 1);
+    ed.showMoment(b.group, 0);
+    const t2 = ed.store.doc.shapes[t.id];
+    return { group: t2?.group ?? null, away: !!t2?.away, scene: !!ed.store.doc.scenes?.[b.group] };
+  });
+  check("a moving drawing pasted with a terminal inside it: the terminal comes out, on show, the drawing still plays", pasted.group === null && !pasted.away && pasted.scene, pasted);
   // Group is offered only when it would take something in: a whole drawing that plays and a conversation, not
   await E(([g, T]) => { const ed = window.__editor, d = ed.store.doc; ed.store.select([...d.order.filter((id) => d.shapes[id]?.group === g), T]); }, [g4, T]);
   check("Group isn't offered for a drawing that plays and only a conversation beside it", (await E(() => window.__editor.canGroup)) === false);
