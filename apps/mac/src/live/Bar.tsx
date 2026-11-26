@@ -150,7 +150,7 @@ export const Bar = memo(function Bar({ editor, dark }: { editor: Editor; dark: b
     if (!reading) return;
     // (before the conversation's own reply box takes it; a menu open in it closes first)
     const esc = (e: KeyboardEvent) => {
-      if (e.key !== "Escape" || document.querySelector(".ask-reader .live-menu, .ask-reader [role=menu], .ask-reader [role=listbox]")) return;
+      if (e.key !== "Escape" || document.querySelector(".ask-reader .live-menu, .ask-reader [role=menu], .ask-reader [role=listbox], .thread-elsewhere")) return;
       e.preventDefault();
       e.stopPropagation();
       setReading(null);

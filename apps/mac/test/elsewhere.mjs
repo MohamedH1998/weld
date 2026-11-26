@@ -1,9 +1,11 @@
-// A thread's session continued in its agent's own app: from the title bar, "Continue in Claude Code" opens it in
-// Terminal (not in a check) and Weld lets go of its own run of it; what is said meanwhile waits; when that app lets go of
-// the session, Weld takes it back and sends what waited. "Copy session id" and "Take it back" do what they say.
-// A stand-in for Claude Code (test/fake/claude) and for the login shell keep this off any real agent:
+// A thread's session continued in its agent's own app: from the title bar's menu, "Continue in Claude Code" (and "Copy
+// session id"). Weld lets go of its own run of it before the launcher can start one, holds what is said meanwhile, and
+// takes it back when that run is plainly gone; the launcher works once, in the thread's folder, on that session, and not
+// at all once taken back. A stand-in for Claude Code (test/fake/claude) and for the login shell keep this off real agents:
 //   PATH="$PWD/test/fake:$PATH" SHELL="$PWD/test/fake/shell" node scripts/shot.mjs out/elsewhere test/elsewhere.mjs
 import { spawn } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -19,52 +21,67 @@ export default async ({ app, page, shot }) => {
   await E((T) => window.weld.thread.set(T, { agent: "claude", mode: "full" }), T);
   const get = () => E((T) => window.weld.thread.get(T), T);
   const oks = async () => (await get()).items.filter((i) => i.kind === "text" && /^ok \d/.test(i.text ?? "")).map((i) => i.text);
+  // (Weld's own scripted runs of the stand-in, and runs of a session outside Weld, by what they were started with)
+  const runs = (sid) => new Promise((done) => { const ps = spawn("/bin/ps", ["-U", String(process.getuid()), "-o", "command="]); let out = ""; ps.stdout.on("data", (d) => (out += d)); ps.on("close", () => { const l = out.split("\n").map((x) => x.trim()).filter((x) => /^(\S*node\S* )?\S*test\/fake\/claude(\s|$)/.test(x)); done({ weld: l.filter((x) => x.includes("stream-json")).length, outside: l.filter((x) => x.includes(sid) && !x.includes("stream-json")).length }); }); });
   await E((T) => window.weld.thread.send(T, { text: "first" }), T);
   for (let t = 0; t < 60 && (await oks()).length < 1; t++) await wait(250);
-  const sid = (await get()).meta.sessions.claude;
-  check("(asked once, it has a session)", !!sid && (await oks()).join() === "ok 1", sid);
+  const sid = (await get()).meta.sessions.claude, cwd = (await get()).meta.cwd;
+  check("(asked once, it has a session, and Weld's run of it is going)", !!sid && (await oks()).join() === "ok 1" && (await runs(sid)).weld === 1, sid);
   await E((T) => { const st = window.__editor.store; st.select([T]); st.emit(); }, T);
   await wait(800);
 
-  // copy session id, from the title bar's menu (the page's clipboard stood in for)
+  // the title bar's menu: copy the session id (the page's clipboard stood in for), and continue it in Claude Code
   await E(() => { window.__copied = []; Object.defineProperty(navigator, "clipboard", { value: { writeText: async (t) => void window.__copied.push(t) }, configurable: true }); });
   const btn = page.locator(`[data-live="${T}"] button[aria-label="Continue in Claude Code"]`);
   check("the title bar offers to continue it in Claude Code", (await btn.count()) === 1);
   await btn.click({ force: true });
   await wait(300);
-  // (the card is redrawn with the board each frame: the press is made once the menu has settled)
   await page.locator(".thread-elsewhere button", { hasText: "Copy session id" }).click({ force: true });
   check("Copy session id copies it", (await E(() => window.__copied)).join() === sid);
   await shot?.("menu");
-
-  // continued there: Weld lets go of its own run, says so, and holds what is said here
   await page.locator(".thread-elsewhere button", { hasText: "Continue in Claude Code" }).click({ force: true });
-  await wait(600);
-  const out1 = await get();
-  check("continued in Claude Code, the thread says so", !!out1.meta.outside && (await page.isVisible(`[data-live="${T}"] .thread-outside`)), out1.meta.outside);
+  for (let t = 0; t < 40 && !(await get()).meta.outside; t++) await wait(150);
+  await wait(300);
+  check("continued in Claude Code, the thread says so", !!(await get()).meta.outside && (await page.isVisible(`[data-live="${T}"] .thread-outside`)));
+  check("…and Weld's own run of it has already ended", (await runs(sid)).weld === 0, await runs(sid));
   await shot?.("outside");
-  const weldsOwn = () => app.evaluate((_, sid) => new Promise((done) => process.getBuiltinModule("node:child_process").execFile("/bin/ps", ["-axo", "command="], (e, out) => done(String(out).split("\n").filter((l) => l.includes("stream-json") && l.includes("test/fake/claude")).length))), sid);
-  await wait(2500);
-  check("…and Weld's own run of it is let go", (await weldsOwn()) === 0);
-  await E((T) => window.weld.thread.send(T, { text: "second" }), T);
-  await wait(1000);
-  const held = await get();
-  check("what is said meanwhile waits", held.meta.queue.length === 1 && (await oks()).length === 1, { queue: held.meta.queue.length, oks: await oks() });
+  // (taken back at once: the launcher the menu made is cancelled)
+  check("taken back before anything ran there, it is Weld's again at once", !(await E((T) => window.weld.thread.takeBack(T), T)).live && !(await get()).meta.outside);
 
-  // the person's own run of it there (as Terminal would have it), then closed: Weld takes it back and sends what waited
-  const there = spawn(bin, ["--resume", sid], { stdio: ["pipe", "ignore", "ignore"] });
-  await wait(6000);
+  // the launcher, as Terminal would run it: in the thread's folder, on that session; meanwhile what is said waits
+  const r = await E((T) => window.weld.thread.handOut(T), T);
+  check("(continued again, with its launcher)", !!r.script && existsSync(r.script), r);
+  await E((T) => window.weld.thread.send(T, { text: "second" }), T);
+  await wait(800);
+  const held = await get();
+  check("what is said meanwhile waits, and says it will go when it's back", held.meta.queue.length === 1 && (await oks()).length === 1 && /when it's back from Claude Code/.test(await E((T) => document.querySelector(`[data-live="${T}"]`)?.textContent ?? "", T)), held.meta.queue);
+  const there = spawn("/bin/sh", [r.script], { stdio: ["pipe", "ignore", "ignore"] });
+  await wait(2500);
+  const sessFile = path.join(os.tmpdir(), `weld-fake-claude-${sid}.json.cwd`);
+  const ranIn = existsSync(sessFile) ? readFileSync(sessFile, "utf8") : null;
+  check("the launcher starts Claude Code on that session, in the thread's folder", (await runs(sid)).outside === 1 && ranIn === (await E((c) => c, cwd)), { runs: await runs(sid), ranIn, cwd });
+  check("…and is used up (it took itself away)", !existsSync(r.script));
+  check("while it runs there, taking it back asks to be sure", !!(await E((T) => window.weld.thread.takeBack(T), T)).live && !!(await get()).meta.outside);
+  // (left running a while, as a person's session there is: Weld looks every few seconds)
+  await wait(9000);
   check("(while it runs there, the thread stays out)", !!(await get()).meta.outside);
   there.kill("SIGTERM");
   let back = null;
-  for (let t = 0; t < 60 && !back; t++) { const th = await get(); if (!th.meta.outside && (await oks()).length >= 2) back = th; else await wait(300); }
+  for (let t = 0; t < 80 && !back; t++) { const th = await get(); if (!th.meta.outside && (await oks()).length >= 2) back = th; else await wait(300); }
   check("closed there, Weld takes it back and sends what waited", !!back && (await oks()).join() === "ok 1,ok 2", { oks: await oks() });
   check("…and says it is back", !!back && back.items.some((i) => i.kind === "note" && /Back from Claude Code/.test(i.text ?? "")));
 
-  // "Take it back", by hand
+  // a launcher not yet run when the thread is taken back does nothing after
+  const r2 = await E((T) => window.weld.thread.handOut(T), T);
+  await E((T) => window.weld.thread.takeBack(T), T);
+  const late = spawn("/bin/sh", [r2.script], { stdio: ["pipe", "ignore", "ignore"] });
+  await wait(2000);
+  check("a launcher run after the thread was taken back starts nothing", (await runs(sid)).outside === 0);
+  late.kill("SIGKILL");
+
+  // a thread branched while it is out is its own, not out
   await E((T) => window.weld.thread.handOut(T), T);
-  await wait(500);
-  await page.locator(`[data-live="${T}"] .thread-outside button`, { hasText: "Take it back" }).click({ force: true });
-  await wait(500);
-  check("Take it back brings it back at once", !(await get()).meta.outside && !(await page.isVisible(`[data-live="${T}"] .thread-outside`)));
+  const copy = await E(async (T) => (await window.weld.thread.fork(T, `fork${Date.now().toString(36)}`)).meta.outside ?? null, T);
+  check("a thread branched from it while it is out is not out itself", copy === null, copy);
+  await E((T) => window.weld.thread.takeBack(T, true), T);
 };

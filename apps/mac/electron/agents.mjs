@@ -127,30 +127,41 @@ export class Threads {
     return (this.reserved.get(id)?.size ?? 0) > 0 || !!this.all.get(id)?.meta?.outside;
   }
   /** Let a thread's session be continued in its agent's own app (Claude Code, Codex): Weld lets go of its own run of it
-   *  (two runs of one session would both write to it) and holds what is said here until it comes back. Answers the
-   *  command that continues it there, in its folder; or why it can't be. */
-  handOut(id) {
+   *  and waits for that run to have ended (two runs of one session would both write to it), and holds what is said here
+   *  until it comes back. Answers what continues it there, in its folder; or why it can't be. */
+  async handOut(id) {
     const t = this.get(id), agent = t.meta.agent;
+    if (id.startsWith("smith")) return { error: "A smith stays in Weld" };
     if (agent !== "claude" && agent !== "codex") return { error: "Only Claude Code and Codex threads can be continued in their own app" };
     const sid = t.meta.sessions?.[agent];
     if (!sid) return { error: "Nothing to continue yet: ask it something first" };
+    if (t.meta.outside) return { error: `It is already open in ${t.meta.outside.app}` };
     if (t.meta.status === "running" || this.running.has(id) || this.starting.has(id)) return { error: "It is working: continue it once it has finished" };
-    this.drop(id);
-    // (Codex's own server for this thread, if it has one, is shut down too)
-    if (agent === "codex") (clearTimeout(this.codexIdle.get(id)), this.codexes.get(id)?.shutdown(), this.codexes.delete(id));
     const app = agent === "claude" ? "Claude Code" : "Codex";
+    // (held from now: nothing of Weld's starts it again while its own run is let go)
     this.meta(id, { outside: { app, sid, since: now() } });
+    const lp = this.live.get(id), proc = lp && !lp.dead ? lp.proc : null;
+    const codex = agent === "codex" ? this.codexes.get(id) : null, cproc = codex?.proc ?? null;
+    this.drop(id);
+    if (codex) (clearTimeout(this.codexIdle.get(id)), codex.shutdown(), this.codexes.delete(id));
+    const ended = (p) => (!p || p.exitCode !== null || p.signalCode !== null ? Promise.resolve() : new Promise((done) => p.once("exit", () => done())));
+    await Promise.race([Promise.all([ended(proc), ended(cproc)]), new Promise((r) => setTimeout(r, 7000))]);
+    if ([proc, cproc].some((p) => p && p.exitCode === null && p.signalCode === null)) {
+      this.meta(id, { outside: null });
+      return { error: "Weld's own run of it did not stop: try again in a moment" };
+    }
     this.put(id, { kind: "note", id: `n${now().toString(36)}o`, text: `Continued in ${app}`, at: now() });
-    return { agent, app, sid, cwd: t.meta.cwd || os.homedir(), command: agent === "claude" ? ["claude", "--resume", sid] : ["codex", "resume", sid] };
+    return { agent, app, sid, cwd: t.meta.cwd || os.homedir() };
   }
-  /** Back from its agent's own app: Weld runs it again, and what was said here meanwhile goes first. */
-  takeBack(id) {
+  /** Back from its agent's own app: Weld runs it again, and what was said here meanwhile goes first (unless it came back
+   *  across a restart of Weld: then, as with anything left waiting by a restart, only when the person says). */
+  takeBack(id, { send = true, note = "" } = {}) {
     const t = this.all.get(id);
     if (!t?.meta?.outside) return;
     const app = t.meta.outside.app;
     this.meta(id, { outside: null });
-    this.put(id, { kind: "note", id: `n${now().toString(36)}b`, text: `Back from ${app}`, at: now() });
-    if (t.meta.queue.length && t.meta.status !== "running") {
+    this.put(id, { kind: "note", id: `n${now().toString(36)}b`, text: note || `Back from ${app}`, at: now() });
+    if (send && !this.gone.has(id) && t.meta.queue.length && t.meta.status !== "running") {
       const [first, ...rest] = t.meta.queue;
       this.meta(id, { queue: rest });
       this.start(id, first.text, extraOf(first));
@@ -386,7 +397,7 @@ export class Threads {
     copy.id = to;
     // the copy starts its own session with each agent, carrying the record across as a handoff
     // (what the original left running stays the original's)
-    copy.meta = { ...copy.meta, sessions: {}, status: "idle", unread: false, queue: [], handoff: true, services: [], asking: false };
+    copy.meta = { ...copy.meta, sessions: {}, status: "idle", unread: false, queue: [], handoff: true, services: [], asking: false, outside: null };
     // (what T3 Code has seen, and that T3 Code made it, belong to the original)
     delete copy.meta.acpSeen;
     delete copy.meta.acpMade;

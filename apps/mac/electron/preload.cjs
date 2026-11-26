@@ -60,7 +60,7 @@ contextBridge.exposeInMainWorld("weld", {
     get: (id) => ipcRenderer.invoke("thread:get", id),
     send: (id, msg) => ipcRenderer.invoke("thread:send", id, msg),
     handOut: (id) => ipcRenderer.invoke("thread:handOut", id),
-    takeBack: (id) => ipcRenderer.invoke("thread:takeBack", id),
+    takeBack: (id, force) => ipcRenderer.invoke("thread:takeBack", id, force === true),
     stop: (id) => ipcRenderer.invoke("thread:stop", id),
     warm: (id) => ipcRenderer.send("thread:warm", id),
     set: (id, change) => ipcRenderer.invoke("thread:set", id, change),

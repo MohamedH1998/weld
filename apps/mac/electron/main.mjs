@@ -575,6 +575,19 @@ const threads = new Threads({
     }
   },
 });
+// threads that were out in their agent's own app when Weld last closed are watched again
+void envReady.then(() => {
+  for (const [id, sid] of Object.entries(outsideNow())) {
+    let t = null;
+    try {
+      t = threads.get(id);
+    } catch {
+      /* gone */
+    }
+    if (t?.meta?.outside?.sid === sid) watchOutside(id, sid, { restored: true });
+    else keepOutside(id, null);
+  }
+});
 function refreshBadge() {
   const n = threads.unreadCount();
   if (process.platform === "darwin") app.dock?.setBadge(n ? String(n) : "");
@@ -968,23 +981,62 @@ function guideFor(name) {
 }
 /** Hand what an agent wants drawn to the board, and wait for what the board made of it. */
 const drawWaits = new Map();
-/** While a thread's session is open in its agent's own app: is a run of it still going there? Looked for every few
- *  seconds; once one has been seen and is gone (or none has appeared within a minute), the thread is Weld's again. */
-const outsideWatch = new Map();
-function watchOutside(id, sid) {
+/** Whether a run of this session is going on outside Weld, by this account (not Weld's own: Weld runs agents scripted,
+ *  with stream-json or as an app server): true, false, or null when it can't be told. */
+function runningOutside(sid) {
+  return new Promise((done) =>
+    // (-ww: whole command lines, never cut to a width, or the session's id could be cut off them)
+    execFile("/bin/ps", ["-ww", "-U", String(process.getuid?.() ?? ""), "-o", "command="], { maxBuffer: 8 * 1024 * 1024 }, (err, out) => {
+      if (err) return done(null);
+      done(String(out).split("\n").some((l) => { const a = l.trim().split(/\s+/); return a.includes(sid) && a.some((w) => /(^|\/)(claude|codex)(\.js)?$/.test(w)) && (a.includes("--resume") || a.includes("resume")) && !/stream-json|app-server/.test(l); }));
+    }),
+  );
+}
+/** While a thread's session is open in its agent's own app: looked for every few seconds; once a run of it has been
+ *  seen there and then is plainly gone (two looks in a row), the thread is Weld's again. Until one has been seen it stays
+ *  out (Terminal may be slow to start it, or the person may not have yet): "Take it back" is there for that. */
+const outsideWatch = new Map(), outsideTickets = new Map();
+// (which threads are out, kept on disk, so a Weld opened again goes on watching them)
+const outsideFile = () => file("outside.json");
+const outsideNow = () => readJson(outsideFile(), {}) ?? {};
+const keepOutside = (id, sid) => {
+  const all = outsideNow();
+  if (sid) all[id] = sid;
+  else delete all[id];
+  try {
+    writeFileSync(outsideFile(), JSON.stringify(all));
+  } catch {
+    /* kept in memory only */
+  }
+};
+function watchOutside(id, sid, { restored = false } = {}) {
   outsideWatch.get(id)?.();
-  let seen = false, stopped = false;
-  const since = Date.now();
-  const look = () => execFile("/bin/ps", ["-axo", "command="], { maxBuffer: 8 * 1024 * 1024 }, (err, out) => {
+  keepOutside(id, sid);
+  let seen = restored ? null : false, misses = 0, stopped = false, timer;
+  const look = async () => {
     if (stopped) return;
-    // (a run of that session that isn't Weld's own: Weld runs agents scripted, with stream-json or as an app server)
-    const there = !err && String(out).split("\n").some((l) => l.includes(sid) && /\b(claude|codex)\b/.test(l) && /resume/.test(l) && !/stream-json|app-server/.test(l));
-    if (there) seen = true;
-    if (!there && (seen || Date.now() - since > 60000)) return (stop(), threads.takeBack(id));
+    const there = await runningOutside(sid);
+    if (stopped) return;
+    if (there === true) (seen = true), (misses = 0);
+    else if (there === false && seen !== false) misses += 1;
+    // (after a restart nothing is known of what was seen: gone twice in a row is gone; what waited, waits for the person)
+    if (misses >= 2) return (stop(), threads.takeBack(id, { send: !restored }));
     timer = setTimeout(look, 4000);
-  });
-  let timer = setTimeout(look, 4000);
-  const stop = () => ((stopped = true), clearTimeout(timer), outsideWatch.delete(id));
+  };
+  timer = setTimeout(look, 4000);
+  const stop = () => {
+    stopped = true;
+    clearTimeout(timer);
+    outsideWatch.delete(id);
+    keepOutside(id, null);
+    const ticket = outsideTickets.get(id);
+    outsideTickets.delete(id);
+    try {
+      if (ticket) rmSync(path.dirname(ticket), { recursive: true, force: true });
+    } catch {
+      /* gone */
+    }
+  };
   outsideWatch.set(id, stop);
 }
 function drawFor(thread, ops) {
@@ -1818,16 +1870,46 @@ function wire() {
   // and takes it back once that app has let go of it (or when the person says so)
   ipcMain.handle("thread:handOut", async (_e, id) => {
     await envReady;
-    const r = threads.handOut(id);
+    const r = await threads.handOut(id);
     if (r.error) return r;
+    const bin = which(r.agent);
+    if (!bin) return (threads.takeBack(id, { send: false, note: `${r.app} wasn't found on this Mac` }), { error: `${r.app} wasn't found on this Mac` });
+    // The launcher: a script of its own in a folder of its own (made new, readable by this account only), used once:
+    // it runs only while its ticket is there, and takes the ticket and itself away as it starts; taking the thread back
+    // before it has run takes the ticket away, so a Terminal that opens late starts nothing.
     const q = (x) => `'${String(x).replace(/'/g, `'\\''`)}'`;
-    const file = path.join(os.tmpdir(), `weld-continue-${id.replace(/[^A-Za-z0-9_-]/g, "_")}.command`);
-    writeFileSync(file, `#!/bin/zsh -l\ncd ${q(r.cwd)} && exec ${r.command.map(q).join(" ")}\n`, { mode: 0o700 });
-    if (!TEST) await shell.openPath(file);
-    watchOutside(id, r.sid);
-    return { app: r.app, sid: r.sid, command: `cd ${q(r.cwd)} && ${r.command.map(q).join(" ")}` };
+    let dir;
+    try {
+      dir = mkdtempSync(path.join(os.tmpdir(), "weld-continue-"));
+      const ticket = path.join(dir, "ticket"), file = path.join(dir, `Continue in ${r.app}.command`);
+      writeFileSync(ticket, "", { mode: 0o600, flag: "wx" });
+      const args = r.agent === "claude" ? ["--resume", r.sid] : ["resume", r.sid];
+      writeFileSync(file, `#!/bin/sh\n[ -e ${q(ticket)} ] || { echo "This was taken back by Weld."; exit 0; }\nrm -f ${q(ticket)} "$0"; rmdir ${q(dir)} 2>/dev/null\nexport PATH=${q(process.env.PATH || "")}\ncd ${q(r.cwd)} && exec ${q(bin)} ${args.map(q).join(" ")}\n`, { mode: 0o700, flag: "wx" });
+      outsideTickets.set(id, ticket);
+      watchOutside(id, r.sid);
+      if (TEST) return { app: r.app, sid: r.sid, script: file };
+      const failed = await shell.openPath(file);
+      if (failed) throw new Error(failed);
+      return { app: r.app, sid: r.sid };
+    } catch (e) {
+      outsideWatch.get(id)?.();
+      try {
+        if (dir) rmSync(dir, { recursive: true, force: true });
+      } catch {
+        /* gone */
+      }
+      threads.takeBack(id, { send: false, note: `Couldn't open it in ${r.app}` });
+      return { error: `Couldn't open it in ${r.app}: ${e?.message || e}` };
+    }
   });
-  ipcMain.handle("thread:takeBack", (_e, id) => (outsideWatch.get(id)?.(), threads.takeBack(id)));
+  // taken back by the person: not while a run of it is still going there, unless they say so again
+  ipcMain.handle("thread:takeBack", async (_e, id, force) => {
+    const sid = threads.get(id)?.meta?.outside?.sid;
+    if (sid && !force && (await runningOutside(sid)) === true) return { live: true };
+    outsideWatch.get(id)?.();
+    threads.takeBack(id);
+    return {};
+  });
   ipcMain.handle("thread:forget", async (_e, id) => (typeof id === "string" && id.startsWith("smith") ? threads.forget(id) : undefined));
 }
 

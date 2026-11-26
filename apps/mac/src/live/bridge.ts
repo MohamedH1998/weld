@@ -187,8 +187,8 @@ export interface Weld {
   thread: {
     get: (id: string) => Promise<Thread>;
     send: (id: string, msg: { text: string; keys?: string[]; cwd?: string }) => Promise<void>;
-    handOut: (id: string) => Promise<{ error?: string; app?: string; sid?: string; command?: string }>;
-    takeBack: (id: string) => Promise<void>;
+    handOut: (id: string) => Promise<{ error?: string; app?: string; sid?: string; script?: string }>;
+    takeBack: (id: string, force?: boolean) => Promise<{ live?: boolean }>;
     stop: (id: string) => Promise<void>;
     warm: (id: string) => void;
     set: (id: string, change: Partial<Pick<Meta, "agent" | "mode" | "cwd" | "title" | "smith">>) => Promise<Meta>;

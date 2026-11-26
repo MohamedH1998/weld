@@ -218,7 +218,7 @@ export function ThreadNode({ box, editor, active, far }: NodeProps) {
         {meta?.outside && (
           <div className="thread-outside" role="status">
             <span>Open in {meta.outside.app}. Weld picks it back up when you close it there{meta.queue?.length ? `, and sends what you've said here` : ""}.</span>
-            <button type="button" className="live-chip ctl" onMouseDown={(e) => e.preventDefault()} onClick={() => void weld.thread.takeBack(box.id)}>Take it back</button>
+            <TakeBack id={box.id} app={meta.outside.app} />
           </div>
         )}
       <Sees editor={editor} id={box.id} />
@@ -430,6 +430,19 @@ const Part = memo(function Part({ text, open }: { text: string; open: (url: stri
   );
 });
 
+/** Take a thread back from its agent's own app; while a run of it is still going there, only on being pressed again. */
+function TakeBack({ id, app }: { id: Id; app: string }) {
+  const [live, setLive] = useState(false);
+  return (
+    <>
+      {live && <span className="sub">Still open in {app}.</span>}
+      <button type="button" className="live-chip ctl" onMouseDown={(e) => e.preventDefault()} onClick={async () => setLive(!!(await weld.thread.takeBack(id, live)).live)}>
+        {live ? "Take it back anyway" : "Take it back"}
+      </button>
+    </>
+  );
+}
+
 /** Continue a thread's session in its agent's own app (where its own commands, /remote-control say, work), or copy
  *  its session id: from a small menu in the thread's title bar. */
 function Elsewhere({ id, agent, sid }: { id: Id; agent: "claude" | "codex"; sid: string }) {
@@ -449,7 +462,8 @@ function Elsewhere({ id, agent, sid }: { id: Id; agent: "claude" | "codex"; sid:
   const toggle = () => {
     setSaid("");
     const r = here.current?.getBoundingClientRect();
-    setAt((a) => (a || !r ? null : { right: window.innerWidth - r.right, top: r.bottom + 4 }));
+    // (kept inside the window: under the button, or above it when there is no room below)
+    setAt((a) => (a || !r ? null : { right: Math.max(8, window.innerWidth - r.right), top: r.bottom + 4 + 120 > window.innerHeight ? Math.max(8, r.top - 4 - 120) : r.bottom + 4 }));
   };
   return (
     <>
@@ -916,8 +930,8 @@ function Composer({ id, editor, meta, items, running, active, onFolder }: { id: 
             <div key={q.at} className="flex items-center gap-2 rounded-lg border border-dashed border-(--live-line) px-3 py-1 text-[12px] text-(--live-sub)">
               <span className="min-w-0 flex-1 truncate">{q.text}</span>
               {/* waiting behind the turn under way; with none under way (the app was closed meanwhile), sent when asked */}
-              {running ? (
-                <span className="shrink-0">next</span>
+              {running || meta.outside ? (
+                <span className="shrink-0">{meta.outside ? `when it's back from ${meta.outside.app}` : "next"}</span>
               ) : (
                 <button type="button" className="live-chip ctl shrink-0 !h-5" onMouseDown={(e) => e.preventDefault()} onClick={() => void weld.thread.sendQueued(id, q.at)}>Send</button>
               )}

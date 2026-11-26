@@ -8,6 +8,8 @@ const at = process.argv.indexOf("--resume"), sid = at > 0 ? process.argv[at + 1]
 const file = path.join(os.tmpdir(), `weld-fake-claude-${sid}.json`);
 let n = 0;
 try { n = JSON.parse(fs.readFileSync(file, "utf8")).n || 0; } catch { /* a new session */ }
+// (run as a person would, not scripted by Weld: where it was started, kept beside the session, for checks)
+if (!process.argv.includes("--output-format")) fs.writeFileSync(`${file}.cwd`, process.cwd());
 let buf = "";
 const out = (m) => process.stdout.write(JSON.stringify(m) + "\n");
 process.stdin.setEncoding("utf8");
