@@ -196,7 +196,7 @@ export function ThreadNode({ box, editor, active, far }: NodeProps) {
         {folded && state !== "quiet" && <span className="live-meta live-fold-state" data-state={state}>{meta?.asking ? "Waiting for you" : running ? "Working" : state === "error" ? "Stopped" : "Ready"}</span>}
         {running && meta?.startedAt && <span className="live-meta">{span(now - meta.startedAt)}</span>}
         {/* (what its turns have cost so far, as the agent reports it: quietly, beside its name) */}
-        {!running && !!meta?.cost && meta.cost >= 0.01 && <span className="live-meta live-cost" title="What this thread's agent has cost so far, as it reports it (API prices)">${meta.cost < 10 ? meta.cost.toFixed(2) : Math.round(meta.cost)}</span>}
+        {!running && !!meta?.cost && meta.cost >= 0.01 && <span className="live-meta live-cost" title="About what this thread's agent has cost so far, as it reports it (at API prices). After a Stop it can be a turn out.">${meta.cost < 10 ? meta.cost.toFixed(2) : Math.round(meta.cost)}</span>}
         {!running && items.length > 0 && (
           <button type="button" aria-label="Copy this thread beside it" title="Branch into a new thread" className="live-icon ctl" onMouseDown={(e) => e.preventDefault()} onClick={() => void fork()}>
             <GitFork size={14} />
