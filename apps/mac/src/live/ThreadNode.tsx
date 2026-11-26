@@ -54,6 +54,17 @@ function unsee(editor: NodeProps["editor"], id: Id, key: string) {
   });
   s.emit();
 }
+/** One thing in a thread's list of what it sees. Pointing at it (the pointer over it, or the keys on it) outlines it
+ *  clearly on the board while the thread is in hand; it lets go when the pointer or the keys leave, or it goes. */
+function See({ from, k, children }: { from: Id; k: string; children: React.ReactNode }) {
+  const tell = (via: "hover" | "focus", on: boolean) => window.dispatchEvent(new CustomEvent("weld:kin-hot", { detail: { from, key: k, via, on } }));
+  useEffect(() => () => { tell("hover", false); tell("focus", false); }, [from, k]); // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <span className="thread-see" onMouseEnter={() => tell("hover", true)} onMouseLeave={() => tell("hover", false)} onFocus={() => tell("focus", true)} onBlur={() => tell("focus", false)}>
+      {children}
+    </span>
+  );
+}
 /** What the thread can see, under its name: each a way to go to it, or to stop showing it. */
 function Sees({ editor, id }: { editor: NodeProps["editor"]; id: Id }) {
   // (followed as the board changes: an arrow drawn to the thread, or taken away, shows here at once)
@@ -61,13 +72,14 @@ function Sees({ editor, id }: { editor: NodeProps["editor"]; id: Id }) {
   if (!keys.length) return null;
   const refs = keys.map((k) => resolve(editor, k)!);
   const named = (r: Ref) => r.label;
+
   return (
     <div className="thread-sees">
       {keys.map((k, i) => {
         const r = refs[i]!;
         const I = ICONS[r.kind];
         return (
-          <span key={k} className="thread-see">
+          <See key={k} from={id} k={k}>
             <button type="button" className="ctl" title={r.sub} onMouseDown={(e) => e.preventDefault()} onClick={() => editor.fit(r.ids)}>
               <I size={11} />
               <span className="truncate">{named(r)}</span>
@@ -75,7 +87,7 @@ function Sees({ editor, id }: { editor: NodeProps["editor"]; id: Id }) {
             <button type="button" aria-label={`Stop showing ${r.label}`} className="ctl" onMouseDown={(e) => e.preventDefault()} onClick={() => unsee(editor, id, k)}>
               <X size={9} />
             </button>
-          </span>
+          </See>
         );
       })}
     </div>
