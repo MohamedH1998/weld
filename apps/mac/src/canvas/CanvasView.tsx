@@ -484,9 +484,11 @@ export function CanvasView() {
       const field = (a instanceof HTMLInputElement || a instanceof HTMLTextAreaElement) && !(a.closest(".smith-bubble, [data-live]") && !a.closest(".xterm") && !a.value);
       // a shell has no undo of the board's: what is typed there stays its own
       if ((what === "undo" || what === "redo" || what === "selectAll") && a instanceof HTMLElement && a.closest(".xterm")) return;
-      if (what === "undo") field && !a.closest(".xterm") ? document.execCommand("undo") : editor.history("undo");
-      else if (what === "redo") field && !a.closest(".xterm") ? document.execCommand("redo") : editor.history("redo");
-      else if (what === "selectAll") field && !a.closest(".xterm") ? a.select() : a instanceof HTMLElement && a.closest("[data-live]") ? document.execCommand("selectAll") : editor.selectAll();
+      // (words being written on the board, in a shape's own editor, are a field too: ⌘A takes their words, ⌘Z their typing)
+      const writing = a instanceof HTMLElement && a.isContentEditable;
+      if (what === "undo") (field || writing) && !a.closest(".xterm") ? document.execCommand("undo") : editor.history("undo");
+      else if (what === "redo") (field || writing) && !a.closest(".xterm") ? document.execCommand("redo") : editor.history("redo");
+      else if (what === "selectAll") field && !a.closest(".xterm") ? a.select() : writing || (a instanceof HTMLElement && a.closest("[data-live]")) ? document.execCommand("selectAll") : editor.selectAll();
       else if (what === "new:thread") window.dispatchEvent(new Event("weld:ask"));
       else if (what === "new:terminal") addLive(editor, "terminal");
       else if (what === "new:browser") addLive(editor, "browser");
