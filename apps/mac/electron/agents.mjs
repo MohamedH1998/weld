@@ -221,6 +221,8 @@ export class Threads {
     // (a thread kept from when there was a Plan mode is held to Edits only, the nearer of the two left)
     if (!MODES.includes(t.meta.mode)) t.meta.mode = "edits";
     t.meta.workspace = placeOf(t.meta.cwd);
+    // (what a thread cost was once kept, added up wrong and used by nothing: it goes)
+    delete t.meta.cost;
     // nothing survives a restart mid-turn: what was running is now stopped
     if (t.meta.status === "running") {
       t.meta.status = "idle";
@@ -1241,7 +1243,7 @@ function claudeReader(th, id, turn) {
       if (ev.type === "result") {
         done = true;
         const t = th.get(id);
-        th.meta(id, { cost: (t.meta.cost || 0) + (ev.total_cost_usd || 0), lastMs: ev.duration_ms });
+        th.meta(id, { lastMs: ev.duration_ms });
         if (ev.is_error) failure = clip(String(ev.result || ev.subtype || "The turn failed"), 800);
         if (ev.session_id) th.meta(id, { sessions: { ...t.meta.sessions, claude: ev.session_id } });
       }
