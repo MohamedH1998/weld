@@ -386,12 +386,18 @@ const Said = memo(function Said({ item, open }: { item: Item; open: (url: string
     </div>
   );
 });
-/** Whether the code blocks being shown may be copied yet (not while the part they are in is still arriving: a block
- *  not yet closed would be copied half written). */
-const CodeReady = createContext(true);
+/** The words the code blocks being shown come from, and whether they are still arriving: a block is ready to copy once
+ *  its closing fence has arrived (or the answer is done), never while it is half written. */
+const CodeSource = createContext<{ text: string; arriving: boolean }>({ text: "", arriving: false });
 /** (one kind of thing for a block of code, made once: made again with each word that arrives, it would be a new block
  *  each time, and lose its focus, its scroll and its "Copied") */
-const PreBlock = ({ children }: { children?: React.ReactNode }) => <CodeBlock>{children}</CodeBlock>;
+const PreBlock = ({ children, node }: { children?: React.ReactNode; node?: { position?: { start: { offset?: number }; end: { offset?: number } } } }) => {
+  const { text, arriving } = useContext(CodeSource);
+  const at = node?.position, src = at && at.start.offset !== undefined && at.end.offset !== undefined ? text.slice(at.start.offset, at.end.offset) : "";
+  // (closed: a fence line after its first one; or an indented block, which has no fence to wait for)
+  const fenced = /^\s*(```|~~~)/.test(src), closed = !fenced || /\n\s*(```|~~~)\s*$/.test(src);
+  return <CodeBlock ready={!arriving || closed}>{children}</CodeBlock>;
+};
 const Part = memo(function Part({ text, open, arriving }: { text: string; open: (url: string) => void; arriving?: boolean }) {
   const components = useMemo<Components>(() => ({
           a: ({ href, children }) => (
@@ -422,19 +428,18 @@ const Part = memo(function Part({ text, open, arriving }: { text: string; open: 
           ),
   }), [open]);
   return (
-    <CodeReady.Provider value={!arriving}>
+    <CodeSource.Provider value={{ text, arriving: !!arriving }}>
       <Markdown remarkPlugins={PLUGINS} components={components}>
         {text}
       </Markdown>
-    </CodeReady.Provider>
+    </CodeSource.Provider>
   );
 });
 
 /** A block of code in what an agent said, with a button beside it that copies all of it (as it reads), and says so
  *  for a moment: "Copied" only once it is on the clipboard, "Couldn't copy" if it could not be put there. */
-function CodeBlock({ children }: { children: React.ReactNode }) {
+function CodeBlock({ children, ready }: { children: React.ReactNode; ready: boolean }) {
   const pre = useRef<HTMLPreElement>(null);
-  const ready = useContext(CodeReady);
   const [said, setSaid] = useState<null | "copied" | "failed">(null);
   const timer = useRef(0);
   useEffect(() => () => window.clearTimeout(timer.current), []);
