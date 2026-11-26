@@ -25,7 +25,7 @@ function useLive(editor: Editor) {
     if (b.kind === "thread") {
       const m = threads.get(b.id)?.meta;
       // waiting on the person to allow something is waiting for them, before it is working
-      return m?.asking ? "ready" : m?.status === "running" ? "working" : m?.error ? "error" : m?.unread ? "ready" : "quiet";
+      return m?.asking ? "ready" : m?.status === "running" || m?.background?.length ? "working" : m?.error ? "error" : m?.unread ? "ready" : "quiet";
     }
     return facts.get(b.id)?.busy ? "working" : "quiet";
   };

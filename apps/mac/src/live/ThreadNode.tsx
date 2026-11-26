@@ -151,7 +151,9 @@ export function ThreadNode({ box, editor, active, far }: NodeProps) {
     if (active && !far && !box.live?.tall && meta?.unread) void weld.thread.seen(box.id);
   }, [active, far, meta?.unread, box.id, box.live?.tall]);
 
-  const state: "working" | "ready" | "error" | "quiet" = meta?.asking ? "ready" : running ? "working" : meta?.error ? "error" : meta?.unread ? "ready" : "quiet";
+  // (its turn over, work it left going in the background still counts as working)
+  const behind = running ? [] : meta?.background ?? [];
+  const state: "working" | "ready" | "error" | "quiet" = meta?.asking ? "ready" : running || behind.length ? "working" : meta?.error ? "error" : meta?.unread ? "ready" : "quiet";
   const title = box.text || meta?.title || "New thread";
   // (read from the bar, a thread kept off the board has no card to fold or take off)
   const away = !!awayBox(editor, box.id);
@@ -193,7 +195,7 @@ export function ThreadNode({ box, editor, active, far }: NodeProps) {
       <Head state={state}>
         <Dot state={state} />
         <span className="live-title min-w-0 flex-1 truncate">{title}</span>
-        {folded && state !== "quiet" && <span className="live-meta live-fold-state" data-state={state}>{meta?.asking ? "Waiting for you" : running ? "Working" : state === "error" ? "Stopped" : "Ready"}</span>}
+        {folded && state !== "quiet" && <span className="live-meta live-fold-state" data-state={state}>{meta?.asking ? "Waiting for you" : running ? "Working" : behind.length ? "In the background" : state === "error" ? "Stopped" : "Ready"}</span>}
         {running && meta?.startedAt && <span className="live-meta">{span(now - meta.startedAt)}</span>}
         {!running && items.length > 0 && (
           <button type="button" aria-label="Copy this thread beside it" title="Branch into a new thread" className="live-icon ctl" onMouseDown={(e) => e.preventDefault()} onClick={() => void fork()}>
@@ -215,6 +217,7 @@ export function ThreadNode({ box, editor, active, far }: NodeProps) {
       <div className="contents" style={folded ? { display: "none" } : undefined}>
       <Sees editor={editor} id={box.id} />
       <Transcript items={items} meta={meta} running={running} active={active} editor={editor} id={box.id} unsaved={thread?.unsaved} />
+      {behind.length > 0 && <Behind list={behind} />}
       {meta && <Composer id={box.id} editor={editor} meta={meta} items={items} running={running} active={active && !far && !folded} onFolder={() => void setCwd()} />}
       </div>
       {folded ? <FarBar w={box.w} title={title} state={state} note={meta?.asking ? "Waiting for you" : undefined} /> : <FarCard w={box.w} h={box.h} icon={ChatCircle} title={title} line={lastLine} state={state} note={meta?.asking ? "Waiting for you" : undefined} />}
@@ -421,6 +424,20 @@ const Part = memo(function Part({ text, open }: { text: string; open: (url: stri
       </Markdown>
   );
 });
+
+/** What its agent left going in the background after its turn, each by what the agent called it, and for how long. */
+function Behind({ list }: { list: NonNullable<Meta["background"]> }) {
+  const now = useNow(true);
+  return (
+    <div className="thread-behind" role="status">
+      <span className="thread-spin" />
+      <span className="truncate">
+        {list.length === 1 ? "In the background: " : `${list.length} in the background: `}
+        {list.map((b) => `${b.what} · ${span(now - b.since)}`).join(", ")}
+      </span>
+    </div>
+  );
+}
 
 /** What an agent is doing just now, in a line: the step under way, or the last thing it said. */
 export function doingNow(items: Item[], running: boolean, cwd?: string): string {

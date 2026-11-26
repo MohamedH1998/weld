@@ -235,6 +235,7 @@ export class Threads {
     t.meta.asking = false;
     // what a thread had running in the background stopped with the app
     if (t.meta.services) t.meta.services = t.meta.services.map((s) => ({ ...s, alive: false }));
+    t.meta.background = [];
     for (const it of t.items) if (it.kind === "ask" && it.status === "waiting") it.status = "stopped";
     this.all.set(id, t);
     return t;
@@ -876,6 +877,8 @@ export class Threads {
         // what it has left running in the background is counted: an agent with work under way is not let go for idleness
         if (ev.type === "system" && ev.subtype === "task_started") lp.tasks = (lp.tasks ?? 0) + 1;
         else if (ev.type === "system" && ev.subtype === "task_notification") lp.tasks = Math.max(0, (lp.tasks ?? 0) - 1);
+        // …and shown on its thread, each by what the agent called it, so work going on after its turn is seen to be
+        if (lp.thread && ev.type === "system" && typeof ev.task_id === "string") this.backgroundEvent(lp.thread, ev);
         lp.onEvent?.(ev);
       }
     });
@@ -887,6 +890,8 @@ export class Threads {
       if (lp.dead) return;
       lp.dead = true;
       lp.code = code;
+      // (what it had running in the background ends with it)
+      if (lp.thread && this.all.get(lp.thread)?.meta?.background?.length) this.meta(lp.thread, { background: [] });
       clearTimeout(lp.idle);
       for (const [id, l] of this.live) if (l === lp) this.live.delete(id);
       lp.onClose?.(code);
@@ -897,6 +902,17 @@ export class Threads {
     });
     proc.on("close", (code) => gone(code ?? 1));
     return lp;
+  }
+  /** Work an agent has going on in the background (a command, a helper agent): kept on its thread while it runs. */
+  backgroundEvent(id, ev) {
+    const t = this.all.get(id);
+    if (!t) return;
+    const list = t.meta.background ?? [];
+    const done = (s) => s && s !== "running" && s !== "pending";
+    if (ev.subtype === "task_started" && ev.is_backgrounded !== false && !list.some((b) => b.id === ev.task_id))
+      this.meta(id, { background: [...list, { id: ev.task_id, what: String(ev.description || ev.task_type || "Working").slice(0, 120), kind: ev.task_type || "", since: now() }].slice(-12) });
+    else if ((ev.subtype === "task_notification" && ev.status !== "running") || (ev.subtype === "task_updated" && done(ev.patch?.status)))
+      list.some((b) => b.id === ev.task_id) && this.meta(id, { background: list.filter((b) => b.id !== ev.task_id) });
   }
   /** This thread's kept agent: the one already running if it was started the same way, a new one if not. */
   kept(id, bin, args, cwd, env) {
@@ -910,6 +926,7 @@ export class Threads {
     }
     if (!lp) {
       lp = this.launch(bin, [...args, "--input-format", "stream-json"], cwd, env);
+      lp.thread = id;
       lp.key = key;
       lp.mode = args.includes("--permission-mode") ? args[args.indexOf("--permission-mode") + 1] : undefined;
       this.live.set(id, lp);

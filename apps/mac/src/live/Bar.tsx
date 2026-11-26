@@ -180,7 +180,7 @@ export const Bar = memo(function Bar({ editor, dark }: { editor: Editor; dark: b
   // the threads kept here that have something to say: at work, waiting for the person, or done and not yet read
   const live = away
     .map((b) => ({ b, t: threads.get(b.id) }))
-    .filter(({ b, t }) => openings.has(b.id) || (t && (t.meta.status === "running" || t.meta.asking || t.meta.unread || t.meta.error)));
+    .filter(({ b, t }) => openings.has(b.id) || (t && (t.meta.status === "running" || t.meta.background?.length || t.meta.asking || t.meta.unread || t.meta.error)));
   const empty = store.doc.order.length === 0 && away.length === 0 && smiths.size === 0 && store.tool === "select" && !store.busy;
   const open = reading ? awayBox(editor, reading) : undefined;
   // (with no agent yet: the card offering them, on a board that is empty but for the terminals it opened; elsewhere, Settings)
@@ -210,7 +210,7 @@ export const Bar = memo(function Bar({ editor, dark }: { editor: Editor; dark: b
           live.length > 0 && (
             <div className="ask-capsules">
               {live.slice(0, 3).map(({ b, t }) => (
-                <Capsule key={b.id} box={b} items={t?.items ?? []} running={t?.meta.status === "running" || openings.has(b.id)} error={!!t?.meta.error} title={b.text || t?.meta.title || "New thread"} cwd={t?.meta.cwd} onOpen={() => setReading(b.id)} />
+                <Capsule key={b.id} box={b} items={t?.items ?? []} behind={t?.meta.status === "running" ? undefined : t?.meta.background} running={t?.meta.status === "running" || openings.has(b.id)} error={!!t?.meta.error} title={b.text || t?.meta.title || "New thread"} cwd={t?.meta.cwd} onOpen={() => setReading(b.id)} />
               ))}
               {live.length > 3 && <span className="ask-more">+{live.length - 3}</span>}
             </div>
@@ -304,9 +304,11 @@ export const Bar = memo(function Bar({ editor, dark }: { editor: Editor; dark: b
   );
 });
 
-function Capsule({ box, items, running, error, title, cwd, onOpen }: { box: Box; items: Item[]; running: boolean; error: boolean; title: string; cwd?: string; onOpen: () => void }) {
-  const { ask, text } = lineOf(items, running, cwd, error);
-  const state = ask ? "ready" : running ? "working" : error ? "error" : "done";
+function Capsule({ box, items, running, behind, error, title, cwd, onOpen }: { box: Box; items: Item[]; running: boolean; behind?: { what: string }[]; error: boolean; title: string; cwd?: string; onOpen: () => void }) {
+  const { ask, text: said } = lineOf(items, running, cwd, error);
+  // (its turn over, with work going on in the background: it says so, and what)
+  const text = !ask && !running && behind?.length ? `In the background: ${behind.map((b) => b.what).join(", ")}` : said;
+  const state = ask ? "ready" : running || behind?.length ? "working" : error ? "error" : "done";
   return (
     <div className="ask-capsule" data-state={state} role="button" tabIndex={0} onClick={(e) => !(e.target as Element).closest("button") && onOpen()} onKeyDown={(e) => e.key === "Enter" && onOpen()}>
       <span className="live-dot" data-state={state === "done" ? "ready" : state} />

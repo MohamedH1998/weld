@@ -1,0 +1,52 @@
+#!/usr/bin/env node
+// A stand-in for Claude Code in its scripted mode (`claude -p --input-format stream-json --output-format stream-json`),
+// for checks: each message it is sent is answered "ok N" (N counts the session's turns), and its result says what the
+// whole session has cost so far, as Claude Code 2.1.332 does: a running total, $0.10 more each turn, carried into a run
+// started with --resume <session> (kept in a file beside the system's temporary files). With FAKE_CLAUDE_VERSION below
+// 2.1.277 it reports, as those versions did, only what this run has cost. Asked something with "bg:<seconds>" in it, it
+// starts a background task ("Build the Acme API") that finishes that many seconds later, then speaks of it unasked, as
+// Claude Code does.
+const version = process.env.FAKE_CLAUDE_VERSION || "2.1.332";
+if (process.argv.includes("--version")) (process.stdout.write(`${version} (Claude Code)\n`), process.exit(0));
+const [va, vb, vc] = version.split(".").map(Number), runScoped = va < 2 || (va === 2 && (vb < 1 || (vb === 1 && vc < 277)));
+const fs = process.getBuiltinModule("node:fs"), os = process.getBuiltinModule("node:os"), path = process.getBuiltinModule("node:path");
+const at = process.argv.indexOf("--resume"), sid = at > 0 ? process.argv[at + 1] : `fake-${process.pid}-${Date.now()}`;
+const file = path.join(os.tmpdir(), `weld-fake-claude-${sid}.json`);
+// (turns so far, and what the session and this run have cost: a turn costs $0.10, or $0.50 when asked something "big")
+let n = 0, spent = 0, ran = 0;
+try { ({ n = 0, spent = 0 } = JSON.parse(fs.readFileSync(file, "utf8"))); } catch { /* a new session */ }
+let buf = "";
+const out = (m) => process.stdout.write(JSON.stringify(m) + "\n");
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", (d) => {
+  buf += d;
+  let i;
+  while ((i = buf.indexOf("\n")) >= 0) {
+    const line = buf.slice(0, i);
+    buf = buf.slice(i + 1);
+    if (!line.trim()) continue;
+    let m;
+    try { m = JSON.parse(line); } catch { continue; }
+    if (m.type !== "user") continue;
+    n += 1;
+    const cost = /big/.test(JSON.stringify(m.message?.content ?? "")) ? 0.5 : 0.1;
+    spent = Math.round((spent + cost) * 100) / 100;
+    ran = Math.round((ran + cost) * 100) / 100;
+    fs.writeFileSync(file, JSON.stringify({ n, spent }));
+    const bg = /bg:(\d+)/.exec(JSON.stringify(m.message?.content ?? ""));
+    if (bg) {
+      const task = `t${n}`;
+      setTimeout(() => {
+        out({ type: "system", subtype: "task_updated", task_id: task, patch: { status: "completed" }, session_id: sid });
+        out({ type: "system", subtype: "task_notification", task_id: task, status: "completed", summary: "Background command \"Build the Acme API\" completed (exit code 0)", session_id: sid });
+        out({ type: "system", subtype: "init", session_id: sid, model: "fake", tools: [], slash_commands: [] });
+        out({ type: "assistant", session_id: sid, message: { id: `m${n}b`, role: "assistant", content: [{ type: "text", text: "the build finished" }] } });
+        out({ type: "result", subtype: "success", session_id: sid, is_error: false, duration_ms: 10, num_turns: 1, result: "the build finished", total_cost_usd: runScoped ? ran : spent });
+      }, Number(bg[1]) * 1000);
+      out({ type: "system", subtype: "init", session_id: sid, model: "fake", tools: [], slash_commands: [] });
+      out({ type: "system", subtype: "task_started", task_id: task, description: "Build the Acme API", task_type: "local_bash", is_backgrounded: true, session_id: sid });
+    } else out({ type: "system", subtype: "init", session_id: sid, model: "fake", tools: [], slash_commands: [] });
+    out({ type: "assistant", session_id: sid, message: { id: `m${n}`, role: "assistant", content: [{ type: "text", text: `ok ${n}` }] } });
+    out({ type: "result", subtype: "success", session_id: sid, is_error: false, duration_ms: 10, num_turns: 1, result: `ok ${n}`, total_cost_usd: runScoped ? ran : spent });
+  }
+});
