@@ -1313,6 +1313,41 @@ function unionOf(moments: { shapes: Shape[] }[]): Rect {
 }
 
 // ── typing ──────────────────────────────────────────────────────────
+/** What a shape's words editor held at one moment, and where its caret or selection was (in characters of its words). */
+type Snap = { html: string; start: number; end: number };
+const textNodes = (el: HTMLElement) => {
+  const out: Text[] = [], w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  for (let n = w.nextNode(); n; n = w.nextNode()) out.push(n as Text);
+  return out;
+};
+function caretOf(el: HTMLElement): { start: number; end: number } {
+  const sel = window.getSelection();
+  if (!sel?.rangeCount || !el.contains(sel.anchorNode)) return { start: el.textContent?.length ?? 0, end: el.textContent?.length ?? 0 };
+  const r = sel.getRangeAt(0), at = (node: Node, off: number) => {
+    const pre = document.createRange();
+    pre.selectNodeContents(el);
+    pre.setEnd(node, off);
+    return pre.toString().length;
+  };
+  return { start: at(r.startContainer, r.startOffset), end: at(r.endContainer, r.endOffset) };
+}
+function setCaret(el: HTMLElement, start: number, end: number) {
+  const range = document.createRange(), nodes = textNodes(el);
+  const place = (n: number, edge: "start" | "end") => {
+    let left = n;
+    for (const t of nodes) {
+      if (left <= t.length) return edge === "start" ? range.setStart(t, left) : range.setEnd(t, left);
+      left -= t.length;
+    }
+    return edge === "start" ? range.setStart(el, el.childNodes.length) : range.setEnd(el, el.childNodes.length);
+  };
+  place(start, "start");
+  place(end, "end");
+  const sel = window.getSelection();
+  sel?.removeAllRanges();
+  sel?.addRange(range);
+}
+
 function TextEditor({ editor, shape, dark }: { editor: Editor; shape: Shape; dark: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
   const store = editor.store;
@@ -1320,9 +1355,9 @@ function TextEditor({ editor, shape, dark }: { editor: Editor; shape: Shape; dar
   const t = themeFor(dark);
   const done = useRef(false);
   // its own undo (the page's is shared by every field, a draft in the bar included): what it held before each step, kept
-  // exactly as it was (its words as typed, its line breaks), a step being a burst of typing, a paste, a cut, typing over
-  // a selection, or one word chosen with an input method
-  const hist = useRef({ past: [] as string[], future: [] as string[], at: 0, composing: false });
+  // exactly as it was (its words as typed, its line breaks) with where the caret was, a step being a burst of typing, a
+  // paste, a cut, a move by dragging, typing over a selection, or one word chosen with an input method
+  const hist = useRef({ past: [] as Snap[], future: [] as Snap[], at: 0, composing: false, moving: false, pending: null as null | { snap: Snap; fresh: boolean; whole: boolean } });
   // typed in the faces it is set in
   const own = shape.face && FACE_LIST.some((f) => f.id === shape.face) ? faceFonts(shape.face as Face) : { font: FONT, mono: MONO };
 
@@ -1359,43 +1394,48 @@ function TextEditor({ editor, shape, dark }: { editor: Editor; shape: Shape; dar
 
   useEffect(() => {
     const el = ref.current!, h = hist.current;
-    // (`fresh`: a step starts here whatever came just before; `whole`: and nothing typed after joins it)
-    const keep = (fresh: boolean, whole: boolean) => {
-      const now = Date.now();
-      if (fresh || now - h.at > 600 || !h.past.length) h.past.push(el.innerHTML);
+    const now = (): Snap => ({ html: el.innerHTML, ...caretOf(el) });
+    // a change is kept only once it has happened (an input that changes nothing leaves undo and redo as they were):
+    // `fresh`, a step starts here whatever came just before; `whole`, nothing typed after joins it
+    const kept = () => {
+      const p = h.pending;
+      h.pending = null;
+      if (!p || el.innerHTML === p.snap.html) return;
+      const t = Date.now();
+      if (p.fresh || t - h.at > 600 || !h.past.length) h.past.push(p.snap);
       h.future = [];
-      h.at = whole ? 0 : now;
+      h.at = p.whole ? 0 : t;
     };
     const before = (e: InputEvent) => {
       if (h.composing || e.isComposing || e.inputType.startsWith("history")) return;
+      // (words dragged within it are one step: the taking out and the putting in)
+      if (e.inputType === "insertFromDrop" && h.moving) { h.moving = false; h.pending = { snap: h.past.at(-1) ?? now(), fresh: false, whole: true }; return; }
+      h.moving = e.inputType === "deleteByDrag";
       const whole = /Paste|Drop|Cut|Replacement/.test(e.inputType);
-      keep(whole || window.getSelection()?.isCollapsed === false, whole);
+      h.pending = { snap: now(), fresh: whole || h.moving || window.getSelection()?.isCollapsed === false, whole };
     };
-    const start = () => { keep(true, true); h.composing = true; };
-    const end = () => { h.composing = false; h.at = 0; };
+    const input = () => { if (!h.composing) kept(); };
+    const start = () => { h.pending = { snap: now(), fresh: true, whole: true }; h.composing = true; };
+    const end = () => { h.composing = false; setTimeout(kept); };
     const step = (e: Event) => {
       const back = (e as CustomEvent<string>).detail === "undo";
       if (document.activeElement !== el || h.composing) return;
       const from = back ? h.past : h.future, to = back ? h.future : h.past;
       const was = from.pop();
       if (was === undefined) return;
-      to.push(el.innerHTML);
-      el.innerHTML = was;
+      to.push(now());
+      el.innerHTML = was.html;
+      setCaret(el, was.start, was.end);
       h.at = 0;
-      // (the caret at the end of what is there again)
-      const range = document.createRange();
-      range.selectNodeContents(el);
-      range.collapse(false);
-      const sel = window.getSelection();
-      sel?.removeAllRanges();
-      sel?.addRange(range);
     };
     el.addEventListener("beforeinput", before);
+    el.addEventListener("input", input);
     el.addEventListener("compositionstart", start);
     el.addEventListener("compositionend", end);
     window.addEventListener("weld:text-history", step);
     return () => {
       el.removeEventListener("beforeinput", before);
+      el.removeEventListener("input", input);
       el.removeEventListener("compositionstart", start);
       el.removeEventListener("compositionend", end);
       window.removeEventListener("weld:text-history", step);

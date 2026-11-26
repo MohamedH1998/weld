@@ -37,13 +37,18 @@ export default async ({ app, page, shot }) => {
   const center = (id) => E((id) => { const e = window.__editor, x = e.store.doc.shapes[id], c = e.store.cam; return { x: (x.x + x.w / 2 - c.x) * c.z, y: (x.y + x.h / 2 - c.y) * c.z }; }, id);
   const state = () => E(() => ({ html: document.activeElement?.isContentEditable ? document.activeElement.innerHTML : null, text: document.activeElement?.isContentEditable ? document.activeElement.textContent : null, editing: window.__editor.store.editing, n: window.__editor.store.doc.order.length, draft: document.querySelector(".ask-bar textarea")?.value }));
 
-  // a draft left in the bar, with undo and redo of its own pending: "draft for later" (undo would give "draft for")
+  // a draft left in the bar with undo and redo of its own pending: "draft for" typed, " later" taken back
   const bar = page.locator(".ask-bar textarea");
   await bar.click();
   await page.keyboard.type("draft for");
   await wait(700);
   await page.keyboard.type(" later");
   await wait(200);
+  await menu("Undo");
+  await wait(200);
+  // (how much one undo takes back in a field is the page's own business: whatever is left, it must stay)
+  const D = await E(() => document.querySelector(".ask-bar textarea").value);
+  check("the draft has typing to undo and to redo", D !== "draft for later" && D.startsWith("draft for"), D);
 
   // the rectangle opened as a person opens it: a double-click on it
   const at = await center("r1");
@@ -54,7 +59,7 @@ export default async ({ app, page, shot }) => {
     await menu(what);
     await wait(250);
     const s = await state();
-    check(`${what} before anything is typed changes nothing: not the draft, not the board, not the edit`, s.draft === "draft for later" && s.editing === "r1" && s.n === 3 && s.text === "", s);
+    check(`${what} before anything is typed changes nothing: not the draft, not the board, not the edit`, s.draft === D && s.editing === "r1" && s.n === 3 && s.text === "", s);
   }
   await page.keyboard.type("Acme");
   await wait(800);
@@ -62,17 +67,17 @@ export default async ({ app, page, shot }) => {
   await menu("Select All");
   await wait(150);
   const picked = await E(() => ({ sel: String(window.getSelection()), shapes: window.__editor.store.sel.size, editing: window.__editor.store.editing }));
-  await shot?.("select-all-words");
   check("Select All takes the words being written", picked.sel === "Acme API gateway", picked);
   check("…and not the board's shapes", picked.shapes <= 1 && picked.editing === "r1", picked);
   // (typing over the selection at once, within a burst's moment: it is still its own step)
   await page.keyboard.type("Checkout");
   await wait(100);
   check("typing then replaces them", (await state()).text === "Checkout");
+  await shot?.("typed-over");
   await menu("Undo");
   await wait(250);
   const s1 = await state();
-  check("Undo takes back what was typed over the selection, and only the rectangle's", s1.text === "Acme API gateway" && s1.n === 3 && s1.editing === "r1" && s1.draft === "draft for later", s1);
+  check("Undo takes back what was typed over the selection, and only the rectangle's", s1.text === "Acme API gateway" && s1.n === 3 && s1.editing === "r1" && s1.draft === D, s1);
   await menu("Undo");
   await wait(250);
   check("…then the burst before it", (await state()).text === "Acme");
@@ -82,7 +87,7 @@ export default async ({ app, page, shot }) => {
   await menu("Redo");
   await wait(250);
   const s2 = await state();
-  check("…then the next", s2.text === "Checkout" && s2.draft === "draft for later", s2);
+  check("…then the next", s2.text === "Checkout" && s2.draft === D, s2);
   // a second line, taken back and brought back, is still a second line
   await page.keyboard.press("Shift+Enter");
   await page.keyboard.type("service");
@@ -99,9 +104,9 @@ export default async ({ app, page, shot }) => {
   for (const what of ["Undo", "Redo"]) {
     await menu(what);
     await wait(200);
+    const fresh = await state();
+    check(`the next box starts with nothing to ${what.toLowerCase()} (the last box's typing is not its)`, fresh.text === "" && fresh.editing === next.editing && fresh.draft === D, fresh);
   }
-  const fresh = await state();
-  check("the next box starts with nothing to undo (the last box's typing is not its)", fresh.text === "" && fresh.editing === next.editing, fresh);
   await page.keyboard.press("Escape");
   await wait(300);
 
@@ -113,13 +118,15 @@ export default async ({ app, page, shot }) => {
   await E(() => { const r = document.createRange(); r.selectNodeContents(document.activeElement); r.collapse(false); getSelection().removeAllRanges(); getSelection().addRange(r); });
   await page.keyboard.type(" v2");
   await wait(700);
+  await page.keyboard.type(" beta");
+  await wait(100);
   await menu("Undo");
   await wait(200);
   // (an edit ended by a click elsewhere on the board)
   await page.mouse.click(5, 300);
   await wait(400);
   const panel = await E(() => ({ text: window.__editor.store.doc.shapes.p1.text, editing: window.__editor.store.editing }));
-  check("a panel's name keeps its case through undo and a click away", panel.text === "Acme API" && !panel.editing, panel);
+  check("a panel's name keeps its case through undo, and a click away keeps what is there", panel.text === "Acme API v2" && !panel.editing, panel);
   await shot?.("after");
 
   // a paste is a step of its own, even straight after typing; so is a word chosen with an input method
@@ -128,7 +135,7 @@ export default async ({ app, page, shot }) => {
   // (the caret at the end: the words open selected)
   await E(() => { const r = document.createRange(); r.selectNodeContents(document.activeElement); r.collapse(false); getSelection().removeAllRanges(); getSelection().addRange(r); });
   await page.keyboard.type(" v2");
-  await app.evaluate(({ clipboard }) => clipboard.writeText(" (Acme)"));
+  const clip = await app.evaluate(({ clipboard }) => { const was = clipboard.readText(); clipboard.writeText(" (Acme)"); return was; });
   // (Paste, as the menu's own Paste does it)
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.paste());
   await wait(150);
@@ -146,6 +153,44 @@ export default async ({ app, page, shot }) => {
   await menu("Undo");
   await wait(200);
   check("…and Undo takes it back whole, never half-composed", (await state()).text === "Billing v2", await state());
+  await app.evaluate(({ clipboard }, was) => clipboard.writeText(was), clip);
+
+  // undo puts the caret back where it was: a correction typed after it lands in the same place
+  const caret = (n) => E((n) => { const el = document.activeElement, t = el.firstChild, r = document.createRange(); r.setStart(t, n); r.collapse(true); getSelection().removeAllRanges(); getSelection().addRange(r); }, n);
+  await caret(7);
+  await page.keyboard.type("X");
+  await wait(100);
+  await menu("Undo");
+  await wait(150);
+  await page.keyboard.type("Y");
+  await wait(100);
+  check("after Undo, typing lands where the caret was", (await state()).text === "BillingY v2", await state());
+  await menu("Undo");
+  await wait(150);
+  // a key that changes nothing (forward Delete at the very end) leaves Redo as it was
+  await E(() => { const el = document.activeElement, r = document.createRange(); r.selectNodeContents(el); r.collapse(false); getSelection().removeAllRanges(); getSelection().addRange(r); });
+  await page.keyboard.press("Delete");
+  await wait(100);
+  await menu("Redo");
+  await wait(150);
+  check("…and a key that changes nothing keeps Redo", (await state()).text === "BillingY v2", await state());
+  // words dragged to another place in the same name come back with one Undo (as the page sends a drag: out, then in)
+  await E(() => {
+    const el = document.activeElement, t = el.firstChild;
+    const send = (type, change) => { el.dispatchEvent(new InputEvent("beforeinput", { inputType: type, bubbles: true, cancelable: true })); change(); el.dispatchEvent(new InputEvent("input", { inputType: type, bubbles: true })); };
+    send("deleteByDrag", () => { t.data = "Billing"; });
+    send("insertFromDrop", () => { t.data = "v2 BillingY"; });
+  });
+  await menu("Undo");
+  await wait(150);
+  check("a drag within the words undoes in one step", (await state()).text === "BillingY v2", await state());
+  // the toolbar's Undo, pressed, is the words' too
+  await page.keyboard.type("Z");
+  await wait(100);
+  await page.locator('button[aria-label="Undo"]').first().click();
+  await wait(200);
+  const tb = await state();
+  check("the toolbar's Undo takes back the words' typing, the edit still open", tb.text === "BillingY v2" && tb.editing === "r2", tb);
   await page.keyboard.press("Escape");
   await wait(300);
 
