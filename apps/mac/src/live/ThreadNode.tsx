@@ -362,15 +362,18 @@ const Transcript = memo(function Transcript({ items, meta, running, active, edit
 /** What was said, cut where one block ends and the next begins, so a piece still being written only re-reads its own last block. */
 function partsOf(text: string): string[] {
   const out: string[] = [];
-  let cur: string[] = [], fence = false, blank = false;
+  // (inside a fenced block until a fence of the same mark, at least as long, closes it: one inside it is its words)
+  let cur: string[] = [], fence = "", blank = false;
   for (const line of text.split("\n")) {
-    const f = /^\s*(```|~~~)/.test(line);
+    const m = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    const opens = !fence && !!m, closes = !!fence && !!m && m[1]![0] === fence[0] && m[1]!.length >= fence.length && !m[2]!.trim();
     // a new block starts after an empty line, at a line that cannot belong to what came before (not indented, not a list or quote going on)
     if (!fence && blank && line.trim() && !/^(\s|[-*+>|]|\d+[.)])/.test(line) && cur.length) {
       out.push(cur.join("\n"));
       cur = [];
     }
-    if (f) fence = !fence;
+    if (opens) fence = m![1]!;
+    else if (closes) fence = "";
     blank = !fence && !line.trim();
     cur.push(line);
   }

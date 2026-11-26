@@ -74,7 +74,8 @@ export default async ({ page, shot }) => {
   // a block fenced with four backticks, holding a three-backtick example: ready only once its own (four-backtick) fence
   // closes, not at the inner one
   await page.keyboard.press("Escape");
-  const nested = "A_README:\\n\\n````md\\nRun:\\n```sh\\necho_one\\n```\\nthen_the_rest_of_the_readme_" + "goes_here_".repeat(10) + "\\n````\\n\\nDone.";
+  // (with a blank line inside the inner example: the answer is still one block, not cut where the example's lines go on)
+  const nested = "A_README:\\n\\n````md\\nRun:\\n```sh\\n\\necho_one\\n```\\nthen_the_rest_of_the_readme_" + "goes_here_".repeat(10) + "\\n````\\n\\nDone.";
   await page.click(".ask-bar textarea");
   await page.keyboard.insertText(`pace:50 say:${nested}`);
   await page.keyboard.press("Enter");
@@ -96,6 +97,7 @@ export default async ({ page, shot }) => {
     await wait(60);
   }
   check("a four-backtick block holding a three-backtick example has no button until its own fence closes", seenOpen && !early, { seenOpen, early });
-  check("…and has one once the answer is done", await E(() => document.querySelectorAll(".ask-reader .code-block .code-copy").length) >= 1);
+  const whole = await E(() => { const r = document.querySelector(".ask-reader"), last = [...r.querySelectorAll(".prose-live")].at(-1); return { blocks: last.querySelectorAll(".code-block").length, buttons: last.querySelectorAll(".code-copy").length, text: last.querySelector(".code-block pre")?.textContent ?? "" }; });
+  check("…and once done it is one block, with one button, holding all of it", whole.blocks === 1 && whole.buttons === 1 && whole.text.includes("echo one") && (whole.text.match(/goes here/g) ?? []).length === 10, whole);
 };
 
