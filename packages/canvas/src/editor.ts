@@ -1566,8 +1566,9 @@ export class Editor {
       out[g1] = { at: sc.at, moments: sc.moments.map((m) => { const here = new Set(m.shapes.map((x) => x.id)); return { ...m, id: newId(), shapes: m.shapes.map((sh): Shape => {
         const o = shifted({ ...sh, id: fresh(sh.id), group: g1 }, c.dx + dx, c.dy + dy);
         if (!isArrow(o)) return unowned(o as Box);
-        // a wire joined to something outside its group lets go, as the copy on the board does
-        const re = (e: End): End => (e.bind ? (here.has(e.bind.id) ? { ...e, bind: { ...e.bind, id: fresh(e.bind.id) } } : { x: e.x, y: e.y }) : e);
+        // a wire joined to something outside its group lets go, as the copy on the board does, unless that was copied with
+        // it (a conversation it is wired to, which is never in a moment): it is joined to the copy
+        const re = (e: End): End => (e.bind ? (here.has(e.bind.id) || c.map.has(e.bind.id) ? { ...e, bind: { ...e.bind, id: fresh(e.bind.id) } } : { x: e.x, y: e.y }) : e);
         return { ...o, a: re(o.a), b: re(o.b) };
       }) }; }) };
     }
@@ -1640,7 +1641,8 @@ export class Editor {
         const ours = text === this.copied;
         const shapes = ours ? cleanShapes(data.shapes) : fromOutside(cleanShapes(data.shapes));
         if (!shapes.length) return;
-        const scenes = cleanDoc({ shapes: {}, order: [], scenes: data.scenes }).scenes ?? {};
+        // (cleaned beside the shapes that come with them: a moment's wire may be joined to one of those)
+        const scenes = cleanDoc({ shapes: Object.fromEntries(shapes.map((x) => [x.id, x])), order: shapes.map((x) => x.id), scenes: data.scenes }).scenes ?? {};
         this.clip = shapes;
         this.clipScenes = ours ? scenes : scenesFromOutside(scenes);
         return this.paste(at);

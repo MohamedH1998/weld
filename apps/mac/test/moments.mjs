@@ -78,6 +78,24 @@ export default async ({ app, page, out }) => {
   await wait(300);
   const ends = await E((T) => { const d = window.__editor.store.doc, w = d.shapes.wire1; return { board: w?.b?.bind?.id === T, moments: Object.values(d.scenes ?? {}).flatMap((sc) => sc.moments).flatMap((m) => m.shapes).filter((x) => x.id === "wire1").every((x) => x.b?.bind?.id === T) }; }, T);
   check("a wire from a drawing that plays to its conversation stays joined to it, opened twice and stepped through", joined && ends.board && ends.moments, ends);
+  // copied with the conversation it is wired to (duplicated, or copied and pasted): the copy's wire is joined to the copy
+  for (const how of ["duplicate", "copy", "paste"]) {
+    const r = await E(([g, T, how]) => {
+      const ed = window.__editor, before = new Set(Object.keys(ed.store.doc.shapes)), d0 = ed.store.doc;
+      ed.store.select([...d0.order.filter((id) => d0.shapes[id]?.group === g), T]);
+      if (how === "duplicate") ed.duplicate(); else if (how === "copy") (ed.copy(), ed.paste()); else ed.pasteText(ed.serialize());
+      const d = ed.store.doc, made = Object.keys(d.shapes).filter((id) => !before.has(id));
+      const wire = made.map((id) => d.shapes[id]).find((x) => x.kind === "arrow" && x.b?.bind), thread = made.find((id) => ["thread", "terminal", "browser"].includes(d.shapes[id].kind));
+      if (!wire) return { how, made: made.map((id) => d.shapes[id].kind) };
+      const g2 = wire.group;
+      ed.store.select(d.order.filter((id) => d.shapes[id]?.group === g2));
+      ed.showMoment(g2, 1);
+      ed.showMoment(g2, 0);
+      const d2 = ed.store.doc, w2 = d2.shapes[wire.id];
+      return { how, to: wire.b.bind.id, thread, board: w2?.b?.bind?.id ?? null, moments: (d2.scenes?.[g2]?.moments ?? []).map((m) => m.shapes.find((x) => x.id === wire.id)?.b?.bind?.id ?? null) };
+    }, [g4, T, how]);
+    check(`${how === "duplicate" ? "duplicated" : how === "copy" ? "copied and pasted (in Weld)" : "copied and pasted (through the clipboard)"} with its conversation, the copy's wire stays joined to the copied conversation through its moments`, !!r.thread && r.to === r.thread && r.board === r.thread && (r.moments ?? []).length > 1 && r.moments.every((x) => x === r.thread), r);
+  }
   // and what the person drew stays out of its reach
   await E(() => { const st = window.__editor.store; st.run(() => st.put({ id: "mine1", kind: "rect", x: 3000, y: 0, w: 100, h: 60, text: "Mine", tone: "ink", fill: "tint" })); st.emit(); });
   const other = weld(["draw", "-"], JSON.stringify({ remove: ["#mine1"] }));
