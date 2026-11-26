@@ -956,10 +956,12 @@ export class Threads {
     if (!lp) return;
     this.live.delete(id);
     // (its ending, waited for by a run of the same thread that would resume its session; ended by now, a quit's)
+    // (once it has finished, whatever it started that is still in its group (a server, a build) is ended with it, as when
+    // it is let go at once: now, if it has finished already)
+    const endGroup = () => (signal(lp.proc, "SIGTERM"), setTimeout(() => signal(lp.proc, "SIGKILL"), 2000));
+    if (lp.proc.exitCode !== null || lp.proc.signalCode !== null) endGroup();
+    else lp.proc.once("exit", endGroup);
     if (!lp.dead) {
-      // (once it has finished, whatever it started that is still in its group (a server, a build) is ended with it, as
-      // when it is let go at once)
-      lp.proc.once("exit", () => (signal(lp.proc, "SIGTERM"), setTimeout(() => signal(lp.proc, "SIGKILL"), 2000)));
       const ended = new Promise((done) => (lp.proc.exitCode !== null || lp.proc.signalCode !== null ? done() : lp.proc.once("exit", () => done())));
       const bounded = Promise.race([ended, new Promise((r) => setTimeout(r, 6000))]);
       this.leaving.set(id, bounded);
