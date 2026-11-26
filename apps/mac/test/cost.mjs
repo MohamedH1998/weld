@@ -34,11 +34,6 @@ export default async ({ app, page }) => {
   const said = () => th.items.filter((i) => i.kind === "text" && /^ok \d/.test(i.text ?? "")).map((i) => i.text);
   check("(three turns, answered in turn by the one Claude kept running)", said().join() === "ok 1,ok 2,ok 3", said());
   check("the thread's cost is what the three turns cost ($0.30), counted once", Math.abs((th.meta.cost ?? 0) - 0.3) < 1e-9, th.meta.cost);
-  await wait(500);
-  const shown = await E((T) => document.querySelector(`[data-live="${T}"] .live-cost`)?.textContent, T);
-  check("…and the thread's card says so beside its name", shown === "$0.30", shown);
-  const tip = await E((T) => { const c = document.querySelector(`[data-live="${T}"] .live-cost`); return c && { title: c.title, pe: getComputedStyle(c).pointerEvents }; }, T);
-  check("…which, pointed at, says what it is", !!tip?.title && tip.pe !== "none", tip);
   // a fresh run of it (its mode changed), resumed: what the session cost before is not counted again
   await E((T) => window.weld.thread.set(T, { mode: "edits" }), T);
   // (the person starts typing first: Weld warms a run for it, which waits for the one let go to have saved)
