@@ -485,9 +485,12 @@ export function CanvasView() {
       // a shell has no undo of the board's: what is typed there stays its own
       if ((what === "undo" || what === "redo" || what === "selectAll") && a instanceof HTMLElement && a.closest(".xterm")) return;
       // (words being written on the board, in a shape's own editor, are a field too: ⌘A takes their words, ⌘Z their typing)
+      // (its typing is taken back by its own history: the page's own undo is shared by every field, a draft in the bar
+      // included, and would take back whichever was typed last)
       const writing = a instanceof HTMLElement && a.isContentEditable;
-      if (what === "undo") (field || writing) && !a.closest(".xterm") ? document.execCommand("undo") : editor.history("undo");
-      else if (what === "redo") (field || writing) && !a.closest(".xterm") ? document.execCommand("redo") : editor.history("redo");
+      if ((what === "undo" || what === "redo") && writing) window.dispatchEvent(new CustomEvent("weld:text-history", { detail: what }));
+      else if (what === "undo") field && !a.closest(".xterm") ? document.execCommand("undo") : editor.history("undo");
+      else if (what === "redo") field && !a.closest(".xterm") ? document.execCommand("redo") : editor.history("redo");
       else if (what === "selectAll") field && !a.closest(".xterm") ? a.select() : writing || (a instanceof HTMLElement && a.closest("[data-live]")) ? document.execCommand("selectAll") : editor.selectAll();
       else if (what === "new:thread") window.dispatchEvent(new Event("weld:ask"));
       else if (what === "new:terminal") addLive(editor, "terminal");
@@ -1316,6 +1319,8 @@ function TextEditor({ editor, shape, dark }: { editor: Editor; shape: Shape; dar
   const z = store.cam.z;
   const t = themeFor(dark);
   const done = useRef(false);
+  // its own undo: what it said before each burst of typing, taken back (and forward) a burst at a time
+  const hist = useRef({ past: [] as string[], future: [] as string[], last: shape.text, at: 0 });
   // typed in the faces it is set in
   const own = shape.face && FACE_LIST.some((f) => f.id === shape.face) ? faceFonts(shape.face as Face) : { font: FONT, mono: MONO };
 
@@ -1329,6 +1334,7 @@ function TextEditor({ editor, shape, dark }: { editor: Editor; shape: Shape; dar
     const el = ref.current!;
     // a legend is typed as it reads, a row a line, so each colour's name is the line beside it
     el.innerText = isBox(shape) && shape.kind === "legend" ? legendLines(store.doc, shape).join("\n") : shape.text;
+    hist.current.last = el.innerText;
     el.focus({ preventScroll: true });
     const range = document.createRange();
     range.selectNodeContents(el);
@@ -1350,6 +1356,40 @@ function TextEditor({ editor, shape, dark }: { editor: Editor; shape: Shape; dar
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const onInput = () => {
+    const el = ref.current, h = hist.current;
+    if (!el) return;
+    const now = el.innerText;
+    if (now === h.last) return;
+    // (a pause of a moment starts a new step: one undo takes back a burst, not a letter)
+    if (Date.now() - h.at > 600 || !h.past.length) h.past.push(h.last);
+    h.future = [];
+    h.last = now;
+    h.at = Date.now();
+  };
+  useEffect(() => {
+    const step = (e: Event) => {
+      const el = ref.current, h = hist.current, back = (e as CustomEvent<string>).detail === "undo";
+      if (!el || document.activeElement !== el) return;
+      const from = back ? h.past : h.future, to = back ? h.future : h.past;
+      const was = from.pop();
+      if (was === undefined) return;
+      to.push(el.innerText);
+      el.innerText = was;
+      h.last = was;
+      h.at = 0;
+      // (the caret at the end of what is there again)
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      range.collapse(false);
+      const sel = window.getSelection();
+      sel?.removeAllRanges();
+      sel?.addRange(range);
+    };
+    window.addEventListener("weld:text-history", step);
+    return () => window.removeEventListener("weld:text-history", step);
+  }, []);
+
   const finish = () => {
     if (done.current) return;
     done.current = true;
@@ -1357,6 +1397,8 @@ function TextEditor({ editor, shape, dark }: { editor: Editor; shape: Shape; dar
   };
   const onKey = (e: React.KeyboardEvent) => {
     e.stopPropagation();
+    // (typing over a selection is a step of its own: undo gives back what it replaced)
+    if (window.getSelection()?.isCollapsed === false) hist.current.at = 0;
     if (e.nativeEvent.isComposing) return; // Enter is choosing a candidate, not finishing
     if (e.key === "Escape" || (e.key === "Enter" && !e.shiftKey && !listed)) {
       e.preventDefault();
@@ -1377,7 +1419,7 @@ function TextEditor({ editor, shape, dark }: { editor: Editor; shape: Shape; dar
   };
   const sx = (x: number) => (x - store.cam.x) * z, sy = (y: number) => (y - store.cam.y) * z;
   // plain text only: nothing pasted brings its formatting or pictures with it
-  const common = { ref, contentEditable: "plaintext-only" as const, suppressContentEditableWarning: true, onKeyDown: onKey, onBlur: finish, spellCheck: false } as const;
+  const common = { ref, contentEditable: "plaintext-only" as const, suppressContentEditableWarning: true, onKeyDown: onKey, onInput, onBlur: finish, spellCheck: false } as const;
 
   if (listed && isBox(shape)) {
     // typed as a list under it, a point or a part a line, in the order they stand
