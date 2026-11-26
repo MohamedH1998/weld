@@ -3,7 +3,7 @@
 // whichever lab's agent produced it. Each turn runs the lab's own
 // command-line agent, signed in as the person, and its events are
 // turned into that one shape as they arrive.
-import { execFile, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import { Changes } from "./changes.mjs";
 import { CodexServer } from "./codex.mjs";
 import { AcpAgent } from "./acpclient.mjs";
@@ -66,9 +66,6 @@ const NOTE_MARK = String([...CANVAS_NOTE].reduce((h, c) => (h * 31 + c.charCodeA
 export class Threads {
   /** @param {{ dir: () => string, emit: (id: string, ev: object) => void, which: (cmd: string) => string | null, onSettled: (id: string, info: object) => void }} o */
   constructor(o) {
-    /** Kept agents being let go, each until it has ended, by thread (a new run of its session waits) and all of them. */
-    this.leaving = new Map();
-    this.letGo = new Set();
     this.o = o;
     /** @type {Map<string, any>} */
     this.all = new Map();
@@ -224,9 +221,8 @@ export class Threads {
     // (a thread kept from when there was a Plan mode is held to Edits only, the nearer of the two left)
     if (!MODES.includes(t.meta.mode)) t.meta.mode = "edits";
     t.meta.workspace = placeOf(t.meta.cwd);
-    // (a cost kept from before costs were counted by session was counted wrong, many turns over: it is not shown, and
-    // counting starts again from here)
-    if (t.meta.cost !== undefined && !t.meta.costs) (delete t.meta.cost, (t.meta.costs = t.meta.sessions?.claude ? { [t.meta.sessions.claude]: null } : {}));
+    // (what a thread cost was once kept, added up wrong and used by nothing: it goes)
+    delete t.meta.cost;
     // nothing survives a restart mid-turn: what was running is now stopped
     if (t.meta.status === "running") {
       t.meta.status = "idle";
@@ -361,9 +357,7 @@ export class Threads {
     copy.id = to;
     // the copy starts its own session with each agent, carrying the record across as a handoff
     // (what the original left running stays the original's)
-    copy.meta = { ...copy.meta, sessions: {}, status: "idle", unread: false, queue: [], handoff: true, services: [], asking: false, costs: {} };
-    // (what the original's turns cost is the original's)
-    delete copy.meta.cost;
+    copy.meta = { ...copy.meta, sessions: {}, status: "idle", unread: false, queue: [], handoff: true, services: [], asking: false };
     // (what T3 Code has seen, and that T3 Code made it, belong to the original)
     delete copy.meta.acpSeen;
     delete copy.meta.acpMade;
@@ -587,14 +581,7 @@ export class Threads {
     // (the folder's picture is waited for only so long; one that comes after the agent has begun would miss what it did
     // first, so it is not used: that turn shows no changes rather than some of them)
     const late = Symbol("late");
-    // (a kept Claude started some other way (its model, mode or folder changed) is let go first, and the new one waits
-    // for it to have finished: with its session saved, what it cost so far, and only then resumed by the new one)
-    if (agent === "claude" && !spec) {
-      const was = this.live.get(id);
-      if (was && !was.dead && was.key !== keyOf(bin, cwd, args)) this.drop(id);
-    }
-    const leaving = this.leaving.get(id) ?? null;
-    void Promise.all([Promise.race([snapping, new Promise((r) => setTimeout(() => r(late), 3000))]), board, leaving]).then(([taken, got]) => {
+    void Promise.all([Promise.race([snapping, new Promise((r) => setTimeout(() => r(late), 3000))]), board]).then(([taken, got]) => {
       const shot = Promise.resolve(taken === late ? null : taken);
       let ctx = got;
       // stopped while waiting: nothing was said to the agent, so there is nothing to stop
@@ -639,7 +626,7 @@ export class Threads {
   }
   /** Follow one turn of an agent's process to its end, writing down what it says and does. */
   attend(id, agent, turn, lp, begun, shot) {
-    const read = lp.acp ? acpReader(this, id, turn, lp.spec) : agent === "claude" ? claudeReader(this, id, turn, lp) : codexReader(this, id, turn);
+    const read = lp.acp ? acpReader(this, id, turn, lp.spec) : agent === "claude" ? claudeReader(this, id, turn) : codexReader(this, id, turn);
     const run = { proc: lp.proc, stopped: false, lp, interrupt: lp.interrupt, turn, hard: lp.hard };
     this.running.set(id, run);
     clearTimeout(lp.idle);
@@ -867,21 +854,6 @@ export class Threads {
   }
 
   // ── the agents' own processes ─────────────────────────────────────
-  /** What a session's total is is no longer known: the next one reported is counted from, not added. */
-  costUnsure(id, sid, from) {
-    const t = this.all.get(id);
-    if (!t || t.meta.costs?.[sid] === undefined || t.meta.costs[sid] === null) return;
-    // (a run of it since, which has counted from its own total already, knows better)
-    const since = this.live.get(id);
-    if (from && since && since !== from && since.sid === sid && since.costSeen !== undefined) return;
-    if (this.closed) {
-      // (quitting: written behind whatever writing of it is already on its way, so nothing older lands after it)
-      t.meta.costs = { ...t.meta.costs, [sid]: null };
-      this.save(id);
-      return this.chains.get(id);
-    }
-    this.meta(id, { costs: { ...t.meta.costs, [sid]: null } });
-  }
   /** Start an agent's command line, in a group of its own (so stopping it stops what it started too), and read its events as they come. */
   launch(bin, args, cwd, env) {
     const proc = spawn(bin, args, { cwd, env, stdio: ["pipe", "pipe", "pipe"], detached: true });
@@ -925,20 +897,13 @@ export class Threads {
       lp.err += String(e?.message || e);
       gone(1);
     });
-    // (one that didn't end cleanly may not have saved what its session has cost: what was counted is kept, and the next
-    // run of the session counts from its first total, rather than against one that may be out of date; said as soon as it
-    // has exited, before anything it left holding its output lets it close, so a run resuming it can't count first)
-    proc.on("exit", (code, sig) => {
-      if (sig || code) lp.unsure = true;
-      // (quitting, what is left is written down as Weld goes: below, in shutdown)
-      if ((sig || code) && lp.thread && lp.sid && !this.quitting) this.costUnsure(lp.thread, lp.sid, lp);
-    });
     proc.on("close", (code) => gone(code ?? 1));
     return lp;
   }
   /** This thread's kept agent: the one already running if it was started the same way, a new one if not. */
   kept(id, bin, args, cwd, env) {
-    const key = keyOf(bin, cwd, args);
+    // (which session it resumes is not part of how it was started: it carries the session on itself)
+    const key = JSON.stringify([bin, cwd, args.filter((a, i) => a !== "--resume" && args[i - 1] !== "--resume")]);
     let lp = this.live.get(id);
     // (one that has exited but not yet closed its pipes is as good as gone)
     if (lp && (lp.dead || lp.key !== key || lp.proc.exitCode !== null || lp.proc.signalCode !== null || !lp.proc.stdin.writable)) {
@@ -947,7 +912,6 @@ export class Threads {
     }
     if (!lp) {
       lp = this.launch(bin, [...args, "--input-format", "stream-json"], cwd, env);
-      costScope(bin, (scope) => (lp.scope = scope));
       lp.key = key;
       lp.mode = args.includes("--permission-mode") ? args[args.indexOf("--permission-mode") + 1] : undefined;
       this.live.set(id, lp);
@@ -978,20 +942,6 @@ export class Threads {
     const lp = this.live.get(id);
     if (!lp) return;
     this.live.delete(id);
-    // (its ending, waited for by a run of the same thread that would resume its session; ended by now, a quit's)
-    // (once it has finished, whatever it started that is still in its group (a server, a build) is ended with it, as when
-    // it is let go at once: now, if it has finished already)
-    const endGroup = () => (signal(lp.proc, "SIGTERM"), setTimeout(() => signal(lp.proc, "SIGKILL"), 2000));
-    if (lp.proc.exitCode !== null || lp.proc.signalCode !== null) endGroup();
-    else lp.proc.once("exit", endGroup);
-    if (!lp.dead) {
-      const ended = new Promise((done) => (lp.proc.exitCode !== null || lp.proc.signalCode !== null ? done() : lp.proc.once("exit", () => done())));
-      const bounded = Promise.race([ended, new Promise((r) => setTimeout(r, 6000))]);
-      this.leaving.set(id, bounded);
-      this.letGo.add(lp);
-      // (its group is kept in mind a while after it has gone: something it started may outlive it, and a quit ends that)
-      void bounded.then(() => (this.leaving.get(id) === bounded && this.leaving.delete(id), setTimeout(() => this.letGo.delete(lp), 10000)));
-    }
     clearTimeout(lp.idle);
     lp.onEvent = lp.onClose = null;
     if (lp.dead) return;
@@ -1000,15 +950,11 @@ export class Threads {
     } catch {
       /* closed already */
     }
-    // (let go gently first: with its input closed, an agent finishes by itself and saves what its session has cost, so a
-    // run that resumes it later knows; only one that doesn't is stopped, and one that won't be, ended)
-    setTimeout(() => !lp.dead && signal(lp.proc, "SIGTERM"), 3000);
-    setTimeout(() => !lp.dead && signal(lp.proc, "SIGKILL"), 5000);
+    signal(lp.proc, "SIGTERM");
+    setTimeout(() => !lp.dead && signal(lp.proc, "SIGKILL"), 2000);
   }
   /** Start this thread's agent before it is asked anything (the person has begun to type): the first word then comes sooner. */
   warm(id) {
-    // (nothing starts while Weld is quitting)
-    if (this.quitting || this.closed) return;
     const t = this.get(id);
     if (t.meta.status === "running" || this.running.has(id)) return;
     // (only the agents Weld keeps running between turns: an ACP agent is started by its turn)
@@ -1020,11 +966,6 @@ export class Threads {
     }
     const bin = this.o.which("claude"), cwd = t.meta.cwd || os.homedir();
     if (!bin || !existsSync(cwd)) return;
-    // (one started some other way is let go first, and the new one waits for it to have ended and saved its session)
-    const was = this.live.get(id);
-    if (was && !was.dead && was.key !== keyOf(bin, cwd, this.claudeArgs(t))) this.drop(id);
-    const leaving = this.leaving.get(id);
-    if (leaving) return void leaving.then(() => { const now = this.leaving.get(id); if (!this.quitting && !this.closed && (!now || now === leaving)) this.warm(id); });
     try {
       const lp = this.kept(id, bin, this.claudeArgs(t), cwd, this.envFor(id));
       if (!lp.idle) this.rest(id, lp, 3 * 60 * 1000);
@@ -1125,9 +1066,6 @@ export class Threads {
     }
     // a kept agent that is being stopped is not handed the next turn: that one gets an agent of its own
     const lp = this.live.get(id);
-    // (stopped, it may not save what its session has cost: the next run counts from its own first total)
-    if (lp?.proc === run.proc) lp.unsure = true;
-    if (lp?.proc === run.proc && lp.thread && lp.sid) this.costUnsure(lp.thread, lp.sid);
     if (lp?.proc === run.proc) {
       this.live.delete(id);
       clearTimeout(lp.idle);
@@ -1139,12 +1077,8 @@ export class Threads {
     setTimeout(() => there() && signal(run.proc, "SIGKILL"), 4000);
   }
   shutdown() {
-    // nothing waiting to start may start now (a run waiting for another to end included)
-    this.quitting = true;
+    // nothing waiting to start may start now
     this.starting.clear();
-    // (quitting, no Claude of a thread can be counted on to save what its session has cost before Weld has gone: each
-    // session's next run counts from its own first total, written down with everything else below)
-    for (const lp of [...this.live.values(), ...this.letGo]) if (lp.thread && lp.sid) this.costUnsure(lp.thread, lp.sid);
     for (const [id, run] of this.running) {
       run.stopped = true;
       // (an ACP agent ends itself and all it started: waited for below)
@@ -1154,28 +1088,9 @@ export class Threads {
       signal(run.proc, "SIGKILL");
       const th = this.all.get(id);
       if (th) th.meta.status = "running";
-      // (killed, it hasn't saved what its session has cost)
-      const klp = this.live.get(id);
-      if (th && klp?.sid && th.meta.costs?.[klp.sid] != null) th.meta.costs = { ...th.meta.costs, [klp.sid]: null };
       this.save(id);
     }
     for (const id of [...this.live.keys()]) this.drop(id);
-    // (quitting: what is being let go is given a moment to finish by itself (saving what its session cost), then it, and
-    // what it started, is ended: never left to run after Weld has gone)
-    const going = [...this.letGo];
-    const finished = Promise.all(going.map((lp) => (lp.proc.exitCode !== null || lp.proc.signalCode !== null ? null : new Promise((done) => lp.proc.once("exit", done)))));
-    const ended = Promise.race([finished, new Promise((r) => setTimeout(r, 2000))]).then(() => {
-      const writes = [];
-      for (const lp of going) {
-        // (one ended here, or that ended uncleanly meanwhile, hasn't saved what its session has cost: written down, in
-        // order, before Weld goes)
-        const alive = lp.proc.exitCode === null && lp.proc.signalCode === null;
-        if ((alive || lp.unsure || lp.proc.exitCode) && lp.thread && lp.sid) writes.push(this.costUnsure(lp.thread, lp.sid, lp));
-        signal(lp.proc, "SIGTERM");
-        signal(lp.proc, "SIGKILL");
-      }
-      return Promise.all(writes);
-    });
     for (const c of this.codexes.values()) c.shutdown();
     // everything not yet written is written, in order, behind whatever writing is already under way (a thread whose last
     // write failed is written whole, whether or not anything new was said)
@@ -1183,7 +1098,7 @@ export class Threads {
     this.retryTimers.clear();
     for (const id of new Set([...this.timers.keys(), ...this.unsaved.keys()])) this.save(id);
     this.closed = true;
-    return Promise.all([...this.chains.values(), ended]);
+    return Promise.all([...this.chains.values()]);
   }
   /** Before the app goes: each thread not saved is written whole once more, behind whatever writing it has under way.
    *  Answers why any still aren't (empty when all are). */
@@ -1251,27 +1166,7 @@ function resultText(content) {
   return content == null ? "" : JSON.stringify(content);
 }
 
-/** How a kept Claude was started (which session it resumes is not part of it: it carries the session on itself). */
-const keyOf = (bin, cwd, args) => JSON.stringify([bin, cwd, args.filter((a, i) => a !== "--resume" && args[i - 1] !== "--resume")]);
-/** What Claude Code's reported cost covers, for this copy of it: from 2.1.277, the whole session's spend (a run started
- *  with --resume carries what the session cost before into it); before that, only this run's. Asked once per program,
- *  in the background (until it answers, the scope of the versions in use now). */
-const costScopes = new Map();
-export function costScope(bin, then) {
-  const known = costScopes.get(bin);
-  if (typeof known === "string") return then(known);
-  if (known) return void known.push(then);
-  const waiting = [then];
-  costScopes.set(bin, waiting);
-  execFile(bin, ["--version"], { encoding: "utf8", timeout: 4000, killSignal: "SIGKILL" }, (err, out) => {
-    const v = !err && /(\d+)\.(\d+)\.(\d+)/.exec(String(out));
-    const [a, b, c] = v ? [Number(v[1]), Number(v[2]), Number(v[3])] : [9, 9, 9];
-    const scope = a < 2 || (a === 2 && (b < 1 || (b === 1 && c < 277))) ? "run" : "session";
-    costScopes.set(bin, scope);
-    for (const f of waiting) f(scope);
-  });
-}
-function claudeReader(th, id, turn, lp) {
+function claudeReader(th, id, turn) {
   let done = false, failure = null;
   // per speaker (the agent itself, or a helper it started): the message being written, and its pieces in order
   const speakers = new Map();
@@ -1348,27 +1243,7 @@ function claudeReader(th, id, turn, lp) {
       if (ev.type === "result") {
         done = true;
         const t = th.get(id);
-        // What it says it has cost is a running total, not this turn's: of its whole session (Claude Code from 2.1.277:
-        // a run resumed with --resume carries the session's earlier spend), or of this run only (earlier versions). Only
-        // what the total grew by is added to the thread's, so no turn is counted twice. A session whose earlier spend
-        // isn't known (a thread from before costs were counted this way) takes its first total as where to count from.
-        const total = Number(ev.total_cost_usd);
-        if (Number.isFinite(total) && total > 0) {
-          const sid = ev.session_id || t.meta.sessions?.claude || "?", costs = { ...(t.meta.costs || {}) }, known = costs[sid];
-          let added;
-          // (later in a run: what its total grew by)
-          if (lp && lp.costSeen !== undefined) added = total >= lp.costSeen ? total - lp.costSeen : total;
-          // (a run's first: a session whose earlier spend isn't known starts counting here; a resumed session carrying
-          // its earlier spend adds what this turn grew it by; one that came back with less than was counted (its total
-          // not saved when its last run was stopped, or a version that counts only a run's) is a run counted afresh)
-          else if (known === null) added = 0;
-          else if ((lp?.scope ?? "session") === "session" && total >= (known ?? 0)) added = total - (known ?? 0);
-          else added = total;
-          if (lp) (lp.costSeen = total, lp.thread = id, lp.sid = sid);
-          // (one stopped or ended uncleanly still says what it spent, but no longer where its session's total stands)
-          if (!lp?.unsure) costs[sid] = known === null ? total : (known ?? 0) + added;
-          th.meta(id, { costs, cost: (t.meta.cost || 0) + added, lastMs: ev.duration_ms });
-        } else th.meta(id, { lastMs: ev.duration_ms });
+        th.meta(id, { lastMs: ev.duration_ms });
         if (ev.is_error) failure = clip(String(ev.result || ev.subtype || "The turn failed"), 800);
         if (ev.session_id) th.meta(id, { sessions: { ...t.meta.sessions, claude: ev.session_id } });
       }

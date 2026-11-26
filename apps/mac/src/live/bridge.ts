@@ -59,7 +59,6 @@ export interface Meta {
   sessions: Partial<Record<Agent, string>>;
   startedAt?: number;
   endedAt?: number;
-  cost?: number;
   modelName?: string;
   lastAgent?: Agent;
   handoff?: boolean;
