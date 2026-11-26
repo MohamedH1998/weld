@@ -1179,13 +1179,13 @@ export function render(
       ctx.rotate(s.rot);
       ctx.translate(-cx, -cy);
       if (isBox(s)) {
-        kindPath(ctx, { ...r, kind: s.kind, notch: s.notch, head: s.head, dips: s.dips, fine: s.fine, text: s.text, levels: s.levels }, 8 * z);
+        kindPath(ctx, { x: r.x - gap, y: r.y - gap, w: r.w + gap * 2, h: r.h + gap * 2, kind: s.kind, notch: s.notch, head: s.head, dips: s.dips, fine: s.fine, text: s.text, levels: s.levels }, 8 * z);
         ctx.stroke();
       } else ctx.strokeRect(r.x - 4, r.y - 2, r.w + 8, r.h + 4);
       ctx.restore();
     } else if (isBox(s)) {
       const r = sr(s);
-      kindPath(ctx, { x: r.x - gap, y: r.y - gap, w: r.w + gap * 2, h: r.h + gap * 2, kind: s.kind, notch: s.notch, head: s.head, dips: s.dips, fine: s.fine, text: s.text, levels: s.levels }, 8 * z + gap);
+      kindPath(ctx, { x: r.x - gap, y: r.y - gap, w: r.w + gap * 2, h: r.h + gap * 2, kind: s.kind, notch: s.notch, head: s.head, dips: s.dips, fine: s.fine, text: s.text, levels: s.levels }, 8 * z);
       ctx.stroke();
     } else if (isText(s)) {
       const r = sr(s);

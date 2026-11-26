@@ -1,5 +1,5 @@
-// A thread in hand shows what it sees, quietly: a faint outline in its colour. Pointing at one of them in the thread's
-// list (hover or keyboard focus) outlines that one clearly, and only that one.
+// A thread in hand shows what it sees, quietly: a faint line in its colour just outside each one, so each keeps its own
+// edge. Pointing at one in the thread's list (hover or keyboard focus) outlines that one clearly, and only that one.
 //   WELD_SEED=0 node scripts/shot.mjs out/kin test/kin.mjs
 import path from "node:path";
 
@@ -14,57 +14,104 @@ export default async ({ page, shot }) => {
   await page.reload();
   await page.waitForFunction(() => !!window.__editor);
   await wait(1200);
-  await page.click(".ask-bar textarea");
-  await page.keyboard.insertText("say:Here's_the_plan");
-  await page.keyboard.press("Enter");
-  for (let t = 0; t < 80 && (await E(() => document.querySelector(".ask-capsule")?.getAttribute("data-state"))) !== "done"; t++) await wait(250);
-  await page.click(".ask-capsule");
-  await wait(500);
-  await page.click("text=Put on the board");
-  await wait(800);
-  // two parts of a plan the thread was shown, beside it
-  const id = await E(() => {
-    const e = window.__editor, st = e.store, d = st.doc, t = d.order.find((x) => d.shapes[x]?.kind === "thread"), b = d.shapes[t];
+  // two threads, working in the same folder (so each is the other's peer)
+  const ask = async (words) => {
+    await page.click(".ask-bar textarea");
+    await page.keyboard.insertText(`say:${words}`);
+    await page.keyboard.press("Enter");
+    for (let t = 0; t < 80 && (await E(() => document.querySelector(".ask-capsule")?.getAttribute("data-state"))) !== "done"; t++) await wait(250);
+    await page.click(".ask-capsule");
+    await wait(500);
+    await page.click("text=Put on the board");
+    await wait(800);
+  };
+  await ask("Here's_the_plan");
+  await ask("A_review_of_the_plan");
+  // (both working in one folder)
+  const dir = await E(async () => { const d = window.__editor.store.doc, ids = d.order.filter((x) => d.shapes[x]?.kind === "thread"); const m = await window.weld.thread.set(ids[0], {}); for (const id of ids) await window.weld.thread.set(id, { cwd: m.cwd }); return m.cwd; });
+  check("(the two threads work in one folder)", !!dir, dir);
+  // what the first thread sees: two boxes, a panel, a turned box, and the other thread
+  const [t1, t2] = await E(() => {
+    const e = window.__editor, st = e.store, d = st.doc, [a, b] = d.order.filter((x) => d.shapes[x]?.kind === "thread"), A = d.shapes[a];
     st.run(() => {
-      st.put({ id: "r1", kind: "rect", x: b.x + b.w + 80, y: b.y, w: 220, h: 90, text: "Acme API", tone: "ink", fill: "tint" });
-      st.put({ id: "r2", kind: "rect", x: b.x + b.w + 80, y: b.y + 140, w: 220, h: 90, text: "Payments service", tone: "ink", fill: "tint" });
-      st.patch(t, { live: { ...b.live, sees: ["drawing:r1", "drawing:r2"] } });
-      // and a page the thread opened (what it made is outlined too)
-      st.put({ id: "pg", kind: "browser", x: b.x, y: b.y + b.h + 80, w: 420, h: 260, text: "", tone: "ink", fill: "none", live: { url: "about:blank", from: t } });
+      st.patch(b, { x: A.x, y: A.y + A.h + 100 });
+      const X = A.x + A.w + 80;
+      st.put({ id: "r1", kind: "rect", x: X, y: A.y, w: 220, h: 90, text: "Acme API", tone: "ink", fill: "tint" });
+      st.put({ id: "r2", kind: "rect", x: X, y: A.y + 140, w: 220, h: 90, text: "Payments service", tone: "ink", fill: "tint" });
+      st.put({ id: "p1", kind: "panel", x: X, y: A.y + 280, w: 160, h: 84, text: "Queue", tone: "ink", fill: "none" });
+      st.put({ id: "q1", kind: "rect", x: X + 300, y: A.y + 40, w: 160, h: 70, text: "Turned", tone: "ink", fill: "tint", rot: 0.3 });
+      st.patch(a, { live: { ...A.live, sees: ["drawing:r1", "drawing:r2", "drawing:p1", "drawing:q1", `live:${b}`] } });
     });
-    e.fit([t, "r1", "r2", "pg"]);
-    st.select([t]);
+    e.fit([a, b, "r1", "r2", "p1", "q1"]);
+    st.select([a]);
     st.emit();
-    return t;
+    return [a, b];
   });
   await wait(900);
-  const quiet = await E(() => { const k = window.__editor.overlay.kin; return k && { ids: [...k.ids].sort(), hot: [...(k.hot ?? [])] }; });
-  check("a thread in hand outlines what it sees", quiet && quiet.ids.join() === "r1,r2", quiet);
-  check("…all of them faintly, none clearly", quiet && quiet.hot.length === 0, quiet);
-  const card = await E(() => { const n = document.querySelector('[data-live="pg"]'), sh = n?.querySelector(":scope > .live-sheet"); return n && sh && { kin: n.classList.contains("is-kin"), outline: getComputedStyle(sh).outlineWidth, shadow: getComputedStyle(sh).boxShadow }; });
-  check("a page the thread opened is outlined faintly too (a thin line, no glow)", card?.kin && card.outline === "1.5px" && !/6px/.test(card.shadow), card);
+  const kin = () => E(() => { const k = window.__editor.overlay.kin; return k ? { ids: [...k.ids].sort().join(), hot: [...(k.hot ?? [])].sort().join() } : null; });
+  const q = await kin();
+  check("a thread in hand outlines the drawings it sees", q?.ids === "p1,q1,r1,r2", q);
+  check("…all of them faintly, none clearly", q?.hot === "", q);
+
+  // the faint line is drawn just outside each shape (its own edge left as it is), turned with a turned one
+  // (every layer of the board at a point: the faint line is drawn on the layer above the shapes)
+  const px = (pts) => E((pts) => pts.map((p) => [...document.querySelectorAll("canvas")].map((c) => { const r = c.getBoundingClientRect(), k = c.width / r.width, d = c.getContext("2d").getImageData(Math.round((p.x - r.left) * k), Math.round((p.y - r.top) * k), 1, 1).data; return [...d]; }).filter((d) => d[3] > 0)), pts);
+  const edges = await E(() => {
+    const e = window.__editor, c = e.store.cam, d = e.store.doc, sx = (x) => (x - c.x) * c.z, sy = (y) => (y - c.y) * c.z;
+    const pt = (id, outBy) => { const s = d.shapes[id], rot = s.rot ?? 0, cx = s.x + s.w / 2, cy = s.y + s.h / 2, dy = -(s.h / 2) - outBy / c.z; return { x: sx(cx - Math.sin(rot) * dy), y: sy(cy + Math.cos(rot) * dy) }; };
+    return Object.fromEntries(["r1", "p1", "q1"].map((id) => [id, { line: pt(id, 4.75), edge: pt(id, 0) }]));
+  });
+  const blue = (layers) => layers.some((c) => c[2] > c[0] + 40);
+  for (const id of ["r1", "p1", "q1"]) {
+    const [line, edge] = await px([edges[id].line, edges[id].edge]);
+    check(`${id === "p1" ? "a panel's" : id === "q1" ? "a turned box's" : "a box's"} faint line lies outside it, its own edge left in its own colour`, blue(line) && !blue(edge), { line, edge });
+  }
+
+  // a thread both seen and working in the same folder: the faint line and the dashed edge, both
+  const both = async () => E((t2) => { const n = document.querySelector(`[data-live="${t2}"]`), sh = n?.querySelector(":scope > .live-sheet"); return n && { kin: n.classList.contains("is-kin"), peer: n.classList.contains("is-peer"), line: !!n.querySelector(":scope > .live-kin"), dashed: getComputedStyle(sh).outlineStyle, ring: getComputedStyle(sh).boxShadow }; }, t2);
+  const b1 = await both();
+  check("a thread seen and in the same folder shows the faint line and the dashed edge together", b1?.kin && b1.peer && b1.line && b1.dashed === "dashed", b1);
   await shot?.("quiet");
-  const chips = page.locator(".thread-see");
-  check("the thread lists them", (await chips.count()) === 2, await chips.allInnerTexts());
+
+  const chips = page.locator(`[data-live="${t1}"] .thread-see`);
+  check("the thread lists them", (await chips.count()) === 5, await chips.allInnerTexts());
   await chips.first().hover();
   await wait(300);
-  const hot = await E(() => [...(window.__editor.overlay.kin?.hot ?? [])]);
-  check("pointing at one in its list outlines that one clearly", hot.join() === "r1", hot);
+  check("pointing at one in its list outlines that one clearly", (await kin())?.hot === "r1", await kin());
   await shot?.("pointed");
   await page.mouse.move(5, 5);
   await wait(300);
-  check("…and moving off lets it go back to faint", (await E(() => (window.__editor.overlay.kin?.hot?.size ?? 0))) === 0);
-  // by keyboard too
+  check("…and moving off lets it go back to faint", (await kin())?.hot === "");
+  // pointing at the other thread: its clear ring, and the dashed edge still there
+  await chips.nth(4).hover();
+  await wait(300);
+  const b2 = await both();
+  check("pointed at, the seen thread is ringed clearly, its dashed edge kept", b2?.dashed === "dashed" && /6px/.test(b2.ring) && !b2.line, b2);
+  await page.mouse.move(5, 5);
+  await wait(200);
+  // by keyboard, and the pointer and the keys apart: keys on one, the pointer passing over another and off
   await chips.nth(1).locator("button").first().focus();
   await wait(200);
-  check("focusing one by keyboard outlines it clearly too", (await E(() => [...(window.__editor.overlay.kin?.hot ?? [])].join())) === "r2");
-  await E(() => document.activeElement?.blur());
-  // another thing taken in hand: nothing stays pointed at
+  check("focusing one by keyboard outlines it clearly too", (await kin())?.hot === "r2");
   await chips.first().hover();
+  await wait(150);
+  await page.mouse.move(5, 5);
+  await wait(200);
+  check("…and the pointer passing over another and off leaves the focused one clear", (await kin())?.hot === "r2", await kin());
+  await E(() => document.activeElement?.blur());
+  await wait(150);
+  // another thing taken in hand: nothing stays pointed at, before the pointer moves at all
+  await chips.first().hover();
+  await wait(200);
+  check("(pointed at before the switch)", (await kin())?.hot === "r1");
   await E(() => { const st = window.__editor.store; st.select(["r1"]); st.emit(); });
   await wait(300);
-  await E((t) => { const st = window.__editor.store; st.select([t]); st.emit(); }, id);
-  await wait(300);
+  const other = await kin();
+  check("taking another thing in hand, nothing is pointed at (the list pointed from is not the one in hand's)", !other || other.hot === "", other);
   await page.mouse.move(5, 5);
-  check("taking another thing in hand lets go of what was pointed at", (await E(() => (window.__editor.overlay.kin?.hot?.size ?? 0))) === 0);
+  await wait(150);
+  await E((t) => { const st = window.__editor.store; st.select([t]); st.emit(); }, t1);
+  await wait(300);
+  const back = await kin();
+  check("…and taking the thread again, nothing is left pointed at", back?.hot === "", back);
 };

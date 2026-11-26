@@ -81,15 +81,31 @@ export const LiveLayer = memo(function LiveLayer({ editor, dark }: { editor: Edi
     return { ids, color };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [one, store.doc]);
-  // the one being pointed at in the thread's list of what it sees (hovered or focused there): outlined clearly
-  const [hot, setHot] = useState<Set<Id>>(() => new Set());
+  // the one being pointed at in the list of what the thread in hand sees (hovered or focused there): outlined clearly.
+  // Kept as the list's own words (which thread, which reference, by hover or by focus), and read against the board as it
+  // is now; only the thread in hand's own list counts.
+  const [pointed, setPointed] = useState<Map<string, { from: Id; key: string }>>(() => new Map());
   useEffect(() => {
-    const on = (e: Event) => setHot(new Set((e as CustomEvent<Id[] | null>).detail ?? []));
+    const on = (e: Event) => {
+      const d = (e as CustomEvent<{ from: Id; key: string; via: "hover" | "focus"; on: boolean }>).detail;
+      setPointed((m) => {
+        const n = new Map(m), k = `${d.via}|${d.from}|${d.key}`;
+        if (d.on) n.set(k, { from: d.from, key: d.key });
+        else n.delete(k);
+        return n;
+      });
+    };
     window.addEventListener("weld:kin-hot", on);
     return () => window.removeEventListener("weld:kin-hot", on);
   }, []);
-  // (another thing taken in hand: nothing is pointed at any more, whatever the list it was pointed from)
-  useEffect(() => setHot(new Set()), [one]);
+  const seenFar = cam.z < FAR;
+  const hot = useMemo(() => {
+    const out = new Set<Id>();
+    if (seenFar || !one) return out;
+    for (const p of pointed.values()) if (p.from === one) for (const x of resolve(editor, p.key)?.ids ?? []) out.add(x);
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pointed, one, seenFar, store.doc]);
   useEffect(() => {
     const drawn = new Set([...linked.ids].filter((x) => !isLive(store.doc.shapes[x])));
     editor.overlay.kin = drawn.size && linked.color ? { ids: drawn, color: linked.color, hot } : null;
@@ -433,6 +449,9 @@ const Slot = memo(function Slot(p: NodeProps & { keep: boolean; kin: boolean; ho
         p.editor.invalidate();
       }}
     >
+      {/* (the faint line round what belongs with the one in hand: a layer of its own, so another cue, the dashed edge of a
+          thread in the same folder, is never lost under it) */}
+      {kin && !hot && <div className="live-kin" aria-hidden />}
       {box.kind === "thread" ? <ThreadNode {...p} /> : box.kind === "terminal" ? <TerminalNode {...p} /> : <BrowserNode {...p} />}
     </div>
   );
