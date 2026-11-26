@@ -4,6 +4,7 @@
 import { createContext, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ArrowsOutSimple, At, CaretDown, CaretRight, ChatCircle, Check, Copy, Folder, FrameCorners, GitFork, Globe, Graph, KeyReturn, Minus, NoteBlank, Shapes, Stop, TerminalWindow, X , Image as ImageIcon } from "@phosphor-icons/react";
 import Markdown, { type Components } from "react-markdown";
+import { createPortal } from "react-dom";
 import remarkGfm from "remark-gfm";
 import { AgentLogo } from "./AgentLogo";
 import { defaultCwd, folderName, isScratch, weld, remember, settings, tilde, agentList, agentName, agentOf, chosenAgent, chosenModel } from "./bridge";
@@ -212,6 +213,7 @@ export function ThreadNode({ box, editor, active, far }: NodeProps) {
             <GitFork size={14} />
           </button>
         )}
+        {!running && !meta?.outside && (meta?.agent === "claude" || meta?.agent === "codex") && !!meta?.sessions?.[meta.agent] && <Elsewhere id={box.id} agent={meta.agent} sid={meta.sessions[meta.agent]!} />}
         {/* minimised, a thread keeps only its title bar (and its place); the same button opens it again */}
         {!away && <button type="button" aria-label={folded ? "Open this thread" : "Minimise this thread"} title={folded ? "Open" : "Minimise"} className="live-icon ctl" onMouseDown={(e) => e.preventDefault()} onClick={() => fold(editor, box.id, !folded)}>
           {folded ? <ArrowsOutSimple size={14} /> : <Minus size={14} weight="bold" />}
@@ -225,6 +227,18 @@ export function ThreadNode({ box, editor, active, far }: NodeProps) {
       </Head>
       {/* folded, the rest is hidden, not taken away: a reply half written is still there when it opens */}
       <div className="contents" style={folded ? { display: "none" } : undefined}>
+        {meta?.outside && (
+          <div className="thread-outside" role="status">
+            {meta.outside.pending ? (
+              <span>Opening in {meta.outside.app}…</span>
+            ) : (
+              <>
+                <span>Open in {meta.outside.app}. When you're done there, close it and bring it back here.</span>
+                <TakeBack id={box.id} app={meta.outside.app} />
+              </>
+            )}
+          </div>
+        )}
       <Sees editor={editor} id={box.id} />
       <Transcript items={items} meta={meta} running={running} active={active} editor={editor} id={box.id} unsaved={thread?.unsaved} />
       {meta && <Composer id={box.id} editor={editor} meta={meta} items={items} running={running} active={active && !far && !folded} onFolder={() => void setCwd()} />}
@@ -458,6 +472,70 @@ const Part = memo(function Part({ text, open, arriving }: { text: string; open: 
     </CodeSource.Provider>
   );
 });
+
+/** Bring a thread back from its agent's own app; while a run of it is still going there, only on being pressed again. */
+function TakeBack({ id, app }: { id: Id; app: string }) {
+  const [live, setLive] = useState(false);
+  return (
+    <>
+      {live && <span className="sub">It's still open in {app}: close it there first.</span>}
+      <button type="button" className="live-chip ctl" onMouseDown={(e) => e.preventDefault()} onClick={async () => { const r = await weld.thread.takeBack(id, false); setLive(!!r.live || !!r.pending); }}>
+        {live ? "Check again" : "Back in Weld"}
+      </button>
+      {live && (
+        <button type="button" className="live-chip ctl" onMouseDown={(e) => e.preventDefault()} onClick={async () => { const r = await weld.thread.takeBack(id, true); setLive(!!r.live || !!r.pending); }}>
+          Bring it back anyway
+        </button>
+      )}
+    </>
+  );
+}
+
+/** Continue a thread's session in its agent's own app (where its own commands, /remote-control say, work), or copy
+ *  its session id: from a small menu in the thread's title bar. */
+function Elsewhere({ id, agent, sid }: { id: Id; agent: "claude" | "codex"; sid: string }) {
+  // (the menu is put over everything, under the button, not inside the card: the card clips what reaches past it)
+  const [at, setAt] = useState<null | { right: number; top: number }>(null), [said, setSaid] = useState("");
+  const here = useRef<HTMLButtonElement>(null), menu = useRef<HTMLDivElement>(null);
+  const app = agent === "claude" ? "Claude Code" : "Codex";
+  useEffect(() => {
+    if (!at) return;
+    const away = (e: Event) => !here.current?.contains(e.target as Node) && !menu.current?.contains(e.target as Node) && setAt(null);
+    // (Escape closes the menu, and only the menu)
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && (e.preventDefault(), e.stopImmediatePropagation(), setAt(null));
+    window.addEventListener("pointerdown", away, true);
+    window.addEventListener("wheel", away, true);
+    window.addEventListener("keydown", esc, true);
+    return () => (window.removeEventListener("pointerdown", away, true), window.removeEventListener("wheel", away, true), window.removeEventListener("keydown", esc, true));
+  }, [at]);
+  const toggle = () => {
+    setSaid("");
+    const r = here.current?.getBoundingClientRect();
+    // (kept inside the window: under the button, or above it when there is no room below)
+    setAt((a) => (a || !r ? null : { right: Math.min(Math.max(8, window.innerWidth - r.right), Math.max(8, window.innerWidth - 8 - 260)), top: r.bottom + 4 + 120 > window.innerHeight ? Math.max(8, r.top - 4 - 120) : r.bottom + 4 }));
+  };
+  return (
+    <>
+      <button ref={here} type="button" aria-label={`Continue in ${app}`} title={`Continue in ${app}`} aria-expanded={!!at} className="live-icon ctl" onMouseDown={(e) => e.preventDefault()} onClick={toggle}>
+        <TerminalWindow size={14} />
+      </button>
+      {at && createPortal(
+        <div ref={menu} className="live-menu ui-in thread-elsewhere" role="menu" style={{ right: at.right, top: at.top }}>
+          <button type="button" role="menuitem" onMouseDown={(e) => e.preventDefault()} onClick={async () => { const r = await weld.thread.handOut(id); if (r.error) setSaid(r.error); else setAt(null); }}>
+            Continue in {app}
+            <span className="sub">in Terminal</span>
+          </button>
+          <button type="button" role="menuitem" onMouseDown={(e) => e.preventDefault()} onClick={async () => { try { await navigator.clipboard.writeText(sid); setSaid("Copied"); } catch { setSaid("Couldn't copy"); } }}>
+            Copy session id
+            <span className="sub">{sid.slice(0, 18)}…</span>
+          </button>
+          {said && <div className="sub px-3 pb-2" role="status">{said}</div>}
+        </div>,
+        document.body,
+      )}
+    </>
+  );
+}
 
 /** A block of code in what an agent said, with a button beside it that copies all of it (as it reads), and says so
  *  for a moment: "Copied" only once it is on the clipboard, "Couldn't copy" if it could not be put there. */
@@ -950,8 +1028,8 @@ function Composer({ id, editor, meta, items, running, active, onFolder }: { id: 
             <div key={q.at} className="flex items-center gap-2 rounded-lg border border-dashed border-(--live-line) px-3 py-1 text-[12px] text-(--live-sub)">
               <span className="min-w-0 flex-1 truncate">{q.text}</span>
               {/* waiting behind the turn under way; with none under way (the app was closed meanwhile), sent when asked */}
-              {running ? (
-                <span className="shrink-0">next</span>
+              {running || meta.outside ? (
+                <span className="shrink-0">{meta.outside ? `once it's back from ${meta.outside.app}` : "next"}</span>
               ) : (
                 <button type="button" className="live-chip ctl shrink-0 !h-5" onMouseDown={(e) => e.preventDefault()} onClick={() => void weld.thread.sendQueued(id, q.at)}>Send</button>
               )}
