@@ -115,6 +115,8 @@ export default async ({ app, page, shot }) => {
   // (this thread's: another, in the bar, may still be busy with its own)
   const amb = { bg: (await get()).meta.background ?? [], dot: await E((T) => document.querySelector(`[data-live="${T}"] .live-dot`)?.getAttribute("data-state"), T) };
   check("Claude's own housekeeping isn't shown or counted as work", !amb.bg.length && amb.dot !== "working", amb);
+  const keptBy = await app.evaluate(({}, T) => globalThis.__tasksOf(T), T);
+  check("…but still keeps its agent from being let go as idle (a watcher asked for is marked so too)", keptBy >= 1, keptBy);
   // a helper resumed under the same task id: the old run's late ending doesn't end the new one
   await E((T) => window.weld.thread.send(T, { text: "review bgreuse" }), T);
   await wait(3500);

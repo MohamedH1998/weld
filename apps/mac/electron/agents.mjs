@@ -881,10 +881,11 @@ export class Threads {
         if (ev.type === "system" && typeof ev.task_id === "string") {
           const done = (x) => x && x !== "running" && x !== "pending";
           lp.bg ??= new Map();
-          // (its own housekeeping (ambient) isn't work of the person's: not counted, not shown; and an ending is of the run
-          // it names, when it names one: a helper resumed under the same task id is a new run, not ended by the old's)
+          // (one it marks ambient isn't shown or counted as the person's work, but keeps its agent from being let go as idle:
+          // a watcher asked for is marked so too; and an ending is of the run it names, when it names one: a helper resumed
+          // under the same task id is a new run, not ended by the old's)
           const mine = (k) => { const b = lp.bg.get(k); return !!b && (!ev.run_id || !b.run || b.run === ev.run_id); };
-          if (ev.subtype === "task_started" && ev.ambient !== true) lp.bg.set(ev.task_id, { id: ev.task_id, run: ev.run_id || "", what: String(ev.description || ev.task_type || "Working").slice(0, 120), kind: ev.task_type || "", since: now(), back: ev.is_backgrounded !== false });
+          if (ev.subtype === "task_started") lp.bg.set(ev.task_id, { id: ev.task_id, run: ev.run_id || "", what: String(ev.description || ev.task_type || "Working").slice(0, 120), kind: ev.task_type || "", since: now(), back: ev.is_backgrounded !== false, ...(ev.ambient === true ? { ambient: true } : {}) });
           else if (ev.subtype === "task_updated" && ev.patch?.is_backgrounded === true && mine(ev.task_id)) lp.bg.get(ev.task_id).back = true;
           if (((ev.subtype === "task_notification" && done(ev.status)) || (ev.subtype === "task_updated" && done(ev.patch?.status))) && mine(ev.task_id)) lp.bg.delete(ev.task_id);
           lp.tasks = lp.bg.size;
@@ -920,7 +921,7 @@ export class Threads {
   /** Work an agent has going on in the background (a command, a helper agent), shown on its thread while it runs: the
    *  newest dozen, of all it has (each task kept by its run until it ends, however many). */
   showBackground(id, lp) {
-    const list = [...(lp.bg?.values() ?? [])].filter((b) => b.back).map(({ id: k, what, kind, since }) => ({ id: k, what, kind, since }));
+    const list = [...(lp.bg?.values() ?? [])].filter((b) => b.back && !b.ambient).map(({ id: k, what, kind, since }) => ({ id: k, what, kind, since }));
     const shown = list.slice(-12), more = list.length - shown.length, since = list.length ? Math.min(...list.map((b) => b.since)) : null;
     const m = this.all.get(id)?.meta ?? {};
     // (how many there are, and since when the oldest, are of all of them, not only those shown)
@@ -929,7 +930,7 @@ export class Threads {
   }
   /** Whether a thread's agent has work going on in the background now. */
   behind(id) {
-    return (this.live.get(id)?.bg?.size ?? 0) > 0;
+    return [...(this.live.get(id)?.bg?.values() ?? [])].some((b) => !b.ambient);
   }
   /** This thread's kept agent: the one already running if it was started the same way, a new one if not. */
   kept(id, bin, args, cwd, env) {

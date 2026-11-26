@@ -512,6 +512,8 @@ const terminals = new Terminals((id, ev) => {
 }, doorEnv);
 // (for checks run against a scratch copy only)
 if (TEST) globalThis.__termsRecent = (id) => terminals.recent(id, 400, true)?.text ?? "";
+// (what a thread's kept agent has going, to keep it from being let go as idle)
+if (TEST) globalThis.__tasksOf = (id) => threads.live.get(id)?.tasks ?? 0;
 // ── what threads leave running ──────────────────────────────────────
 /** Start (or start over) a thread's background command: the same command in the same folder is the same one, begun again. */
 // (each is the command's own process, in a login shell's surroundings: when it ends, it is seen to have ended)
