@@ -46,6 +46,8 @@ export interface DrawOps {
   /** A whole diagram in the board's story notation (see canvas/notation.ts and `weld guide`): things, links and the beats
    *  it plays through; with `replace`, drawn again in place of a drawing this conversation made. */
   story?: { name: string; about?: string; things: unknown[]; links?: unknown[]; beats?: unknown[]; replace?: string };
+  /** Remove or redraw shapes the person has changed since this agent drew them: only when the person asked for that. */
+  force?: boolean;
 }
 const FIELDS: Record<string, Set<string>> = {
   add: new Set(["ref", "kind", "text", "x", "y", "w", "h", "tone", "fill", "near"]),
@@ -60,6 +62,17 @@ const NOT_DRAWN = new Set(["thread", "terminal", "browser"]);
 const TONES = ["ink", "accent", "muted", "red", "green", "amber", "violet", "teal"], FILLS = ["none", "tint", "solid"];
 const NEAR: Record<string, string> = { black: "ink", dark: "ink", default: "ink", blue: "accent", purple: "violet", indigo: "accent", grey: "muted", gray: "muted", light: "muted", orange: "amber", yellow: "amber", gold: "amber", brown: "amber", pink: "red", crimson: "red", cyan: "teal", lime: "green" };
 const num = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+/** A short mark of where a shape stands and what it says (`drawnAs`): what an agent left, to know later if it was changed. */
+export const markOf = (sh: Shape): string => {
+  const g = sh as { x?: number; y?: number; w?: number; h?: number; rot?: number; text?: string; a?: unknown; b?: unknown };
+  const at = "x" in sh ? [g.x, g.y, g.w, g.h, g.rot ?? 0].map((v) => Math.round(Number(v) || 0)).join(",") : JSON.stringify([g.a, g.b]);
+  let n = 5381;
+  for (const ch of `${at}|${g.text ?? ""}`) n = ((n * 33) ^ ch.charCodeAt(0)) >>> 0;
+  return n.toString(36);
+};
+/** Whether the person has changed a shape since an agent last left it (a shape with no mark was drawn before marks were
+ *  kept, or by the person: nothing can be said, and it is not held back). */
+const changedSince = (sh: Shape | undefined) => !!sh?.drawnAs && markOf(sh) !== sh.drawnAs;
 
 /** Apply what an agent asked for; answer what it made (by the names it gave), and anything it could not do. */
 export function draw(editor: Editor, thread: Id, ops: DrawOps): { made: Record<string, Id>; changed: number; removed: number; problems: string[] } {
@@ -132,14 +145,14 @@ export function draw(editor: Editor, thread: Id, ops: DrawOps): { made: Record<s
   for (const [k, list] of [["add", ops.add], ["connect", ops.connect], ["change", ops.change], ["remove", ops.remove], ["copy", ops.copy]] as const)
     if ((list?.length ?? 0) > LIMIT) problems.push(`only the first ${LIMIT} of ${list!.length} in "${k}" were done; send the rest in another call`);
   // a field it does not know is a mistake to say, never a shape drawn without it (a "label" for "text" made blank boxes)
-  for (const k of Object.keys(ops)) if (!FIELDS[k] && k !== "remove" && k !== "story") problems.push(`unknown step "${k}" (use add, connect, change, remove, copy, repeat, story)`);
+  for (const k of Object.keys(ops)) if (!FIELDS[k] && k !== "remove" && k !== "story" && k !== "force") problems.push(`unknown step "${k}" (use add, connect, change, remove, copy, repeat, story)`);
   const known = <T extends object>(step: string, list: T[] | undefined) =>
     list?.filter((o) => {
       const bad = o && typeof o === "object" ? Object.keys(o).filter((k) => !FIELDS[step]!.has(k)) : ["(not an object)"];
       if (bad.length) problems.push(`not done: ${step} ${JSON.stringify(o).slice(0, 80)}: unknown field${bad.length > 1 ? "s" : ""} ${bad.map((b) => `"${b}"`).join(", ")} (fields: ${[...FIELDS[step]!].join(", ")})`);
       return !bad.length;
     });
-  const asked = ops.story;
+  const asked = ops.story, force = ops.force === true;
   ops = { story: asked, add: known("add", ops.add?.slice(0, LIMIT)), connect: known("connect", ops.connect?.slice(0, LIMIT)), change: known("change", ops.change?.slice(0, LIMIT)), remove: ops.remove?.slice(0, LIMIT), copy: known("copy", ops.copy?.slice(0, 10)), repeat: known("repeat", ops.repeat?.slice(0, 10)) };
   for (const a of ops.add ?? []) {
     const kind = a.kind ?? "rect";
@@ -644,6 +657,21 @@ export function draw(editor: Editor, thread: Id, ops: DrawOps): { made: Record<s
     for (const byState of sceneAdds.values()) for (const [k, list] of byState) byState.set(k, list.map((sh) => (sh.id === id ? shift(sh) : sh)));
     patches.delete(id);
   }
+  // (nor are its place or its words put back over the person's: what else is asked, a colour say, still is)
+  if (!force) {
+    const kept: Id[] = [];
+    for (const [id, change] of patches) {
+      if (!changedSince(doc.shapes[id])) continue;
+      const c = { ...(change as Record<string, unknown>) };
+      const over = ["x", "y", "w", "h", "rot", "text"].filter((k) => k in c);
+      if (!over.length) continue;
+      for (const k of over) delete c[k];
+      if (Object.keys(c).length) patches.set(id, c);
+      else patches.delete(id);
+      kept.push(id);
+    }
+    if (kept.length) problems.push(`left as the person left ${kept.length === 1 ? "it" : "them"}: ${kept.slice(0, 8).map((x) => "#" + x).join(" ")} (the person has moved or reworded ${kept.length === 1 ? "it" : "them"} since you drew ${kept.length === 1 ? "it" : "them"}; their place and words were not changed back). Change them only if the person asked you to, with "force": true.`);
+  }
   const patch = [...patches].map(([id, change]) => ({ id, change: change as Partial<Shape> }));
   const remove: Id[] = [];
   for (const r of ops.remove ?? []) {
@@ -655,6 +683,12 @@ export function draw(editor: Editor, thread: Id, ops: DrawOps): { made: Record<s
       continue;
     }
     remove.push(id);
+  }
+  // what the person has changed since it was drawn (moved, resized, reworded) is theirs: not taken away unasked
+  const held = force ? [] : remove.filter((id) => changedSince(doc.shapes[id]));
+  if (held.length) {
+    for (const id of held) remove.splice(remove.indexOf(id), 1);
+    problems.push(`not removed: the person has changed ${held.length === 1 ? "#" + held[0] : `${held.length} of these (${held.slice(0, 8).map((x) => "#" + x).join(" ")}${held.length > 8 ? " …" : ""})`} since you drew ${held.length === 1 ? "it" : "them"}, so ${held.length === 1 ? "it was" : "they were"} left as the person left ${held.length === 1 ? "it" : "them"}. Read the board with weld look and keep their changes (change only what you need, or carry their order or wording back to wherever the drawing comes from). Remove them only if the person asked you to, with "force": true.`);
   }
   // (something made in this request and removed in it too: it is simply not made, in any state, nor the lines to it)
   for (const id of [...remove]) {
@@ -771,6 +805,7 @@ export function draw(editor: Editor, thread: Id, ops: DrawOps): { made: Record<s
           if (!g) problems.push(`not done: story: there is no drawing ${sp!.replace} to replace`);
           // (all of it: a drawing part of which is someone else's is not redrawn over them)
           else if (!old.every((x) => mine.has(x)) || old.some((x) => isLive(doc.shapes[x]!))) problems.push(`not done: story: ${sp!.replace} ${OUT}`);
+          else if (!force && old.some((x) => changedSince(doc.shapes[x]))) problems.push(`not done: story: the person has changed ${old.filter((x) => changedSince(doc.shapes[x])).length} of ${sp!.replace}'s shapes since you drew it, so it was not drawn over. Read it with weld look and keep their changes (use "change" on the parts you need), or redraw it over them only if the person asked, with "force": true.`);
           else {
             const ob = union(old.map((x) => bounds(doc, doc.shapes[x]!)));
             at = ob ? { x: ob.x, y: ob.y } : null;
@@ -823,7 +858,12 @@ export function draw(editor: Editor, thread: Id, ops: DrawOps): { made: Record<s
     for (const [k, v] of Object.entries(made)) if (k !== v) namedF[k] = v;
     return { made: namedF, changed: patch.length, removed: remove.length, problems };
   }
+  // (a shape the person changed stays theirs through a change of the agent's to it, a colour say, unless asked)
+  const theirs = new Set(force ? [] : patch.map((p) => p.id).filter((id) => changedSince(doc.shapes[id])));
   s.applyForeign(put, patch, remove, anyScene || story ? fixAll : undefined);
+  // each shape it drew or changed is marked as it left it: changed later, it is the person's (see changedSince)
+  const left = [...new Set([...put.map((p) => p.id), ...patch.map((p) => p.id)])].filter((id) => s.doc.shapes[id] && !theirs.has(id));
+  if (left.length) s.applyForeign([], left.map((id) => ({ id, change: (sh: Shape) => ({ drawnAs: markOf(sh) }) as Partial<Shape> })), []);
   // What it drew is connected to it, so it goes on seeing (and may go on changing) its own work. Shapes that are now
   // joined into one drawing are one connection, however many times it took to draw them. (Told to every moment of the
   // person's history too, so undoing their own steps never disconnects the agent from work still on the board.)
