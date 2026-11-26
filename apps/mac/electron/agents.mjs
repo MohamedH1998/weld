@@ -3,7 +3,7 @@
 // whichever lab's agent produced it. Each turn runs the lab's own
 // command-line agent, signed in as the person, and its events are
 // turned into that one shape as they arrive.
-import { execFileSync, spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { Changes } from "./changes.mjs";
 import { CodexServer } from "./codex.mjs";
 import { AcpAgent } from "./acpclient.mjs";
@@ -915,7 +915,7 @@ export class Threads {
     }
     if (!lp) {
       lp = this.launch(bin, [...args, "--input-format", "stream-json"], cwd, env);
-      lp.scope = costScope(bin);
+      costScope(bin, (scope) => (lp.scope = scope));
       lp.key = key;
       lp.mode = args.includes("--permission-mode") ? args[args.indexOf("--permission-mode") + 1] : undefined;
       this.live.set(id, lp);
@@ -954,8 +954,10 @@ export class Threads {
     } catch {
       /* closed already */
     }
-    signal(lp.proc, "SIGTERM");
-    setTimeout(() => !lp.dead && signal(lp.proc, "SIGKILL"), 2000);
+    // (let go gently first: with its input closed, an agent finishes by itself and saves what its session has cost, so a
+    // run that resumes it later knows; only one that doesn't is stopped, and one that won't be, ended)
+    setTimeout(() => !lp.dead && signal(lp.proc, "SIGTERM"), 3000);
+    setTimeout(() => !lp.dead && signal(lp.proc, "SIGKILL"), 5000);
   }
   /** Start this thread's agent before it is asked anything (the person has begun to type): the first word then comes sooner. */
   warm(id) {
@@ -1171,21 +1173,22 @@ function resultText(content) {
 }
 
 /** What Claude Code's reported cost covers, for this copy of it: from 2.1.277, the whole session's spend (a run started
- *  with --resume carries what the session cost before into it); before that, only this run's. Asked once per program. */
+ *  with --resume carries what the session cost before into it); before that, only this run's. Asked once per program,
+ *  in the background (until it answers, the scope of the versions in use now). */
 const costScopes = new Map();
-export function costScope(bin) {
-  if (!bin) return "session";
-  if (!costScopes.has(bin)) {
-    let scope = "session";
-    try {
-      const v = /(\d+)\.(\d+)\.(\d+)/.exec(execFileSync(bin, ["--version"], { encoding: "utf8", timeout: 4000 }));
-      if (v) { const [a, b, c] = [Number(v[1]), Number(v[2]), Number(v[3])]; scope = a < 2 || (a === 2 && (b < 1 || (b === 1 && c < 277))) ? "run" : "session"; }
-    } catch {
-      /* not answered: the scope of the versions in use now */
-    }
+export function costScope(bin, then) {
+  const known = costScopes.get(bin);
+  if (typeof known === "string") return then(known);
+  if (known) return void known.push(then);
+  const waiting = [then];
+  costScopes.set(bin, waiting);
+  execFile(bin, ["--version"], { encoding: "utf8", timeout: 4000, killSignal: "SIGKILL" }, (err, out) => {
+    const v = !err && /(\d+)\.(\d+)\.(\d+)/.exec(String(out));
+    const [a, b, c] = v ? [Number(v[1]), Number(v[2]), Number(v[3])] : [9, 9, 9];
+    const scope = a < 2 || (a === 2 && (b < 1 || (b === 1 && c < 277))) ? "run" : "session";
     costScopes.set(bin, scope);
-  }
-  return costScopes.get(bin);
+    for (const f of waiting) f(scope);
+  });
 }
 function claudeReader(th, id, turn, lp) {
   let done = false, failure = null;
@@ -1270,18 +1273,18 @@ function claudeReader(th, id, turn, lp) {
         // isn't known (a thread from before costs were counted this way) takes its first total as where to count from.
         const total = Number(ev.total_cost_usd);
         if (Number.isFinite(total) && total > 0) {
-          const sid = ev.session_id || t.meta.sessions?.claude || "?", costs = { ...(t.meta.costs || {}) };
+          const sid = ev.session_id || t.meta.sessions?.claude || "?", costs = { ...(t.meta.costs || {}) }, known = costs[sid];
           let added;
-          if ((lp?.scope ?? "session") === "session") {
-            const known = costs[sid];
-            added = known === null ? 0 : Math.max(0, total - (known ?? 0));
-            costs[sid] = Math.max(total, known ?? 0);
-          } else {
-            const seen = lp?.costSeen ?? 0;
-            added = total >= seen ? total - seen : total;
-            if (lp) lp.costSeen = total;
-            costs[sid] = (costs[sid] ?? 0) + added;
-          }
+          // (later in a run: what its total grew by)
+          if (lp && lp.costSeen !== undefined) added = total >= lp.costSeen ? total - lp.costSeen : total;
+          // (a run's first: a session whose earlier spend isn't known starts counting here; a resumed session carrying
+          // its earlier spend adds what this turn grew it by; one that came back with less than was counted (its total
+          // not saved when its last run was stopped, or a version that counts only a run's) is a run counted afresh)
+          else if (known === null) added = 0;
+          else if ((lp?.scope ?? "session") === "session" && total >= (known ?? 0)) added = total - (known ?? 0);
+          else added = total;
+          if (lp) lp.costSeen = total;
+          costs[sid] = known === null ? total : (known ?? 0) + added;
           th.meta(id, { costs, cost: (t.meta.cost || 0) + added, lastMs: ev.duration_ms });
         } else th.meta(id, { lastMs: ev.duration_ms });
         if (ev.is_error) failure = clip(String(ev.result || ev.subtype || "The turn failed"), 800);

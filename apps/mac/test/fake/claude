@@ -13,6 +13,10 @@ const file = path.join(os.tmpdir(), `weld-fake-claude-${sid}.json`);
 // (turns so far, and what the session and this run have cost: a turn costs $0.10, or $0.50 when asked something "big")
 let n = 0, spent = 0, ran = 0;
 try { ({ n = 0, spent = 0 } = JSON.parse(fs.readFileSync(file, "utf8"))); } catch { /* a new session */ }
+// (FAKE_CLAUDE_SAVE=exit: as Claude Code does, what the session cost is saved only when it finishes by itself (its input
+// closed), not when it is killed: a resumed run of one killed starts its total from what was saved before)
+const saveOnExit = process.env.FAKE_CLAUDE_SAVE === "exit";
+let saved = spent;
 let buf = "";
 const out = (m) => process.stdout.write(JSON.stringify(m) + "\n");
 process.stdin.setEncoding("utf8");
@@ -30,9 +34,13 @@ process.stdin.on("data", (d) => {
     const cost = /big/.test(JSON.stringify(m.message?.content ?? "")) ? 0.5 : 0.1;
     spent = Math.round((spent + cost) * 100) / 100;
     ran = Math.round((ran + cost) * 100) / 100;
-    fs.writeFileSync(file, JSON.stringify({ n, spent }));
+    fs.writeFileSync(file, JSON.stringify({ n, spent: saveOnExit ? saved : spent }));
     out({ type: "system", subtype: "init", session_id: sid, model: "fake", tools: [], slash_commands: [] });
     out({ type: "assistant", session_id: sid, message: { id: `m${n}`, role: "assistant", content: [{ type: "text", text: `ok ${n}` }] } });
     out({ type: "result", subtype: "success", session_id: sid, is_error: false, duration_ms: 10, num_turns: 1, result: `ok ${n}`, total_cost_usd: runScoped ? ran : spent });
   }
+});
+process.stdin.on("end", () => {
+  if (saveOnExit) fs.writeFileSync(file, JSON.stringify({ n, spent }));
+  process.exit(0);
 });
