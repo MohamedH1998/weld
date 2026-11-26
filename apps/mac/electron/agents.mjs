@@ -961,7 +961,8 @@ export class Threads {
       const bounded = Promise.race([ended, new Promise((r) => setTimeout(r, 6000))]);
       this.leaving.set(id, bounded);
       this.letGo.add(lp);
-      void bounded.then(() => (this.leaving.get(id) === bounded && this.leaving.delete(id), this.letGo.delete(lp)));
+      // (its group is kept in mind a while after it has gone: something it started may outlive it, and a quit ends that)
+      void bounded.then(() => (this.leaving.get(id) === bounded && this.leaving.delete(id), setTimeout(() => this.letGo.delete(lp), 10000)));
     }
     clearTimeout(lp.idle);
     lp.onEvent = lp.onClose = null;
@@ -989,6 +990,11 @@ export class Threads {
     }
     const bin = this.o.which("claude"), cwd = t.meta.cwd || os.homedir();
     if (!bin || !existsSync(cwd)) return;
+    // (one started some other way is let go first, and the new one waits for it to have ended and saved its session)
+    const was = this.live.get(id);
+    if (was && !was.dead && was.key !== keyOf(bin, cwd, this.claudeArgs(t))) this.drop(id);
+    const leaving = this.leaving.get(id);
+    if (leaving) return void leaving.then(() => { const now = this.leaving.get(id); if (!now || now === leaving) this.warm(id); });
     try {
       const lp = this.kept(id, bin, this.claudeArgs(t), cwd, this.envFor(id));
       if (!lp.idle) this.rest(id, lp, 3 * 60 * 1000);
@@ -1114,8 +1120,8 @@ export class Threads {
       this.save(id);
     }
     for (const id of [...this.live.keys()]) this.drop(id);
-    // (quitting: what is being let go gently is ended now, not left to finish after Weld has gone)
-    for (const lp of this.letGo) signal(lp.proc, "SIGTERM");
+    // (quitting: what is being let go gently, and what it started, is ended now, not left to finish after Weld has gone)
+    for (const lp of this.letGo) (signal(lp.proc, "SIGTERM"), signal(lp.proc, "SIGKILL"));
     for (const c of this.codexes.values()) c.shutdown();
     // everything not yet written is written, in order, behind whatever writing is already under way (a thread whose last
     // write failed is written whole, whether or not anything new was said)

@@ -3,7 +3,8 @@
 // (test/fake/claude: $0.10 a turn), put first on the PATH, with a stand-in login shell that keeps that PATH:
 //   PATH="$PWD/test/fake:$PATH" SHELL="$PWD/test/fake/shell" node scripts/shot.mjs out/cost test/cost.mjs
 // and, as an older Claude Code that reports only each run's cost, with FAKE_CLAUDE_VERSION=2.1.200 before it; and as one
-// that saves its total only when it finishes by itself (as Claude Code does), with FAKE_CLAUDE_SAVE=exit.
+// that saves its total only when it finishes by itself (as Claude Code does), with FAKE_CLAUDE_SAVE=exit (and
+// FAKE_CLAUDE_SAVE_MS=1500, a while to do it).
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const check = (name, ok, extra) => console.log(`${ok ? "ok  " : "FAIL"} ${name}${!ok && extra !== undefined ? ` -> ${JSON.stringify(extra).slice(0, 300)}` : ""}`);
 
@@ -40,6 +41,9 @@ export default async ({ app, page }) => {
   check("…which, pointed at, says what it is", !!tip?.title && tip.pe !== "none", tip);
   // a fresh run of it (its mode changed), resumed: what the session cost before is not counted again
   await E((T) => window.weld.thread.set(T, { mode: "edits" }), T);
+  // (the person starts typing first: Weld warms a run for it, which waits for the one let go to have saved)
+  await E((T) => window.weld.thread.warm(T), T);
+  await wait(300);
   await E((T) => window.weld.thread.send(T, { text: "fourth, a big one" }), T);
   th = await done(4);
   check("(a fresh run, resumed, answers the session's fourth turn)", said().at(-1) === "ok 4", said());

@@ -40,7 +40,8 @@ process.stdin.on("data", (d) => {
     out({ type: "result", subtype: "success", session_id: sid, is_error: false, duration_ms: 10, num_turns: 1, result: `ok ${n}`, total_cost_usd: runScoped ? ran : spent });
   }
 });
-process.stdin.on("end", () => {
+// (FAKE_CLAUDE_SAVE_MS: how long it takes to wind up and save once its input closes, as a real one may)
+process.stdin.on("end", () => setTimeout(() => {
   if (saveOnExit) fs.writeFileSync(file, JSON.stringify({ n, spent }));
   process.exit(0);
-});
+}, Number(process.env.FAKE_CLAUDE_SAVE_MS || 0)));
