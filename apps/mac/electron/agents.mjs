@@ -868,17 +868,19 @@ export class Threads {
 
   // ── the agents' own processes ─────────────────────────────────────
   /** What a session's total is is no longer known: the next one reported is counted from, not added. */
-  costUnsure(id, sid, from, now = false) {
+  costUnsure(id, sid, from) {
     const t = this.all.get(id);
     if (!t || t.meta.costs?.[sid] === undefined || t.meta.costs[sid] === null) return;
     // (a run of it since, which has counted from its own total already, knows better)
     const since = this.live.get(id);
     if (from && since && since !== from && since.sid === sid && since.costSeen !== undefined) return;
-    if (now) {
-      // (quitting: written at once, whatever else is or isn't being written)
+    if (this.closed) {
+      // (quitting: written behind whatever writing of it is already on its way, so nothing older lands after it)
       t.meta.costs = { ...t.meta.costs, [sid]: null };
-      this.save(id, true);
-    } else this.meta(id, { costs: { ...t.meta.costs, [sid]: null } });
+      this.save(id);
+      return this.chains.get(id);
+    }
+    this.meta(id, { costs: { ...t.meta.costs, [sid]: null } });
   }
   /** Start an agent's command line, in a group of its own (so stopping it stops what it started too), and read its events as they come. */
   launch(bin, args, cwd, env) {
@@ -927,7 +929,9 @@ export class Threads {
     // run of the session counts from its first total, rather than against one that may be out of date; said as soon as it
     // has exited, before anything it left holding its output lets it close, so a run resuming it can't count first)
     proc.on("exit", (code, sig) => {
-      if ((sig || code) && lp.thread && lp.sid) this.costUnsure(lp.thread, lp.sid, lp);
+      if (sig || code) lp.unsure = true;
+      // (quitting, what is left is written down as Weld goes: below, in shutdown)
+      if ((sig || code) && lp.thread && lp.sid && !this.quitting) this.costUnsure(lp.thread, lp.sid, lp);
     });
     proc.on("close", (code) => gone(code ?? 1));
     return lp;
@@ -1122,6 +1126,7 @@ export class Threads {
     // a kept agent that is being stopped is not handed the next turn: that one gets an agent of its own
     const lp = this.live.get(id);
     // (stopped, it may not save what its session has cost: the next run counts from its own first total)
+    if (lp?.proc === run.proc) lp.unsure = true;
     if (lp?.proc === run.proc && lp.thread && lp.sid) this.costUnsure(lp.thread, lp.sid);
     if (lp?.proc === run.proc) {
       this.live.delete(id);
@@ -1157,13 +1162,16 @@ export class Threads {
     const going = [...this.letGo];
     const finished = Promise.all(going.map((lp) => (lp.proc.exitCode !== null || lp.proc.signalCode !== null ? null : new Promise((done) => lp.proc.once("exit", done)))));
     const ended = Promise.race([finished, new Promise((r) => setTimeout(r, 2000))]).then(() => {
+      const writes = [];
       for (const lp of going) {
+        // (one ended here, or that ended uncleanly meanwhile, hasn't saved what its session has cost: written down, in
+        // order, before Weld goes)
         const alive = lp.proc.exitCode === null && lp.proc.signalCode === null;
-        // (one ended here hasn't saved what its session has cost: written down before it is)
-        if (alive && lp.thread && lp.sid) this.costUnsure(lp.thread, lp.sid, lp, true);
+        if ((alive || lp.unsure || lp.proc.exitCode) && lp.thread && lp.sid) writes.push(this.costUnsure(lp.thread, lp.sid, lp));
         signal(lp.proc, "SIGTERM");
         signal(lp.proc, "SIGKILL");
       }
+      return Promise.all(writes);
     });
     for (const c of this.codexes.values()) c.shutdown();
     // everything not yet written is written, in order, behind whatever writing is already under way (a thread whose last
@@ -1354,7 +1362,8 @@ function claudeReader(th, id, turn, lp) {
           else if ((lp?.scope ?? "session") === "session" && total >= (known ?? 0)) added = total - (known ?? 0);
           else added = total;
           if (lp) (lp.costSeen = total, lp.thread = id, lp.sid = sid);
-          costs[sid] = known === null ? total : (known ?? 0) + added;
+          // (one stopped or ended uncleanly still says what it spent, but no longer where its session's total stands)
+          if (!lp?.unsure) costs[sid] = known === null ? total : (known ?? 0) + added;
           th.meta(id, { costs, cost: (t.meta.cost || 0) + added, lastMs: ev.duration_ms });
         } else th.meta(id, { lastMs: ev.duration_ms });
         if (ev.is_error) failure = clip(String(ev.result || ev.subtype || "The turn failed"), 800);
