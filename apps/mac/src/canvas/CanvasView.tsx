@@ -724,12 +724,12 @@ export function CanvasView() {
           </Tip>
           <span className="mx-1 h-4 w-px bg-kumo-line" />
           <Tip label="Undo" keys="⌘Z">
-            <button className={CELL} aria-label="Undo" disabled={!store.canUndo} onClick={() => editor.history("undo")}>
+            <button className={CELL} aria-label="Undo" disabled={!store.editing && !store.canUndo} onClick={() => (store.editing ? window.dispatchEvent(new CustomEvent("weld:text-history", { detail: "undo" })) : editor.history("undo"))}>
               <ArrowCounterClockwise size={16} />
             </button>
           </Tip>
           <Tip label="Redo" keys="⇧⌘Z">
-            <button className={CELL} aria-label="Redo" disabled={!store.canRedo} onClick={() => editor.history("redo")}>
+            <button className={CELL} aria-label="Redo" disabled={!store.editing && !store.canRedo} onClick={() => (store.editing ? window.dispatchEvent(new CustomEvent("weld:text-history", { detail: "redo" })) : editor.history("redo"))}>
               <ArrowClockwise size={16} />
             </button>
           </Tip>
@@ -1319,8 +1319,10 @@ function TextEditor({ editor, shape, dark }: { editor: Editor; shape: Shape; dar
   const z = store.cam.z;
   const t = themeFor(dark);
   const done = useRef(false);
-  // its own undo: what it said before each burst of typing, taken back (and forward) a burst at a time
-  const hist = useRef({ past: [] as string[], future: [] as string[], last: shape.text, at: 0 });
+  // its own undo (the page's is shared by every field, a draft in the bar included): what it held before each step, kept
+  // exactly as it was (its words as typed, its line breaks), a step being a burst of typing, a paste, a cut, typing over
+  // a selection, or one word chosen with an input method
+  const hist = useRef({ past: [] as string[], future: [] as string[], at: 0, composing: false });
   // typed in the faces it is set in
   const own = shape.face && FACE_LIST.some((f) => f.id === shape.face) ? faceFonts(shape.face as Face) : { font: FONT, mono: MONO };
 
@@ -1334,7 +1336,6 @@ function TextEditor({ editor, shape, dark }: { editor: Editor; shape: Shape; dar
     const el = ref.current!;
     // a legend is typed as it reads, a row a line, so each colour's name is the line beside it
     el.innerText = isBox(shape) && shape.kind === "legend" ? legendLines(store.doc, shape).join("\n") : shape.text;
-    hist.current.last = el.innerText;
     el.focus({ preventScroll: true });
     const range = document.createRange();
     range.selectNodeContents(el);
@@ -1356,27 +1357,30 @@ function TextEditor({ editor, shape, dark }: { editor: Editor; shape: Shape; dar
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const onInput = () => {
-    const el = ref.current, h = hist.current;
-    if (!el) return;
-    const now = el.innerText;
-    if (now === h.last) return;
-    // (a pause of a moment starts a new step: one undo takes back a burst, not a letter)
-    if (Date.now() - h.at > 600 || !h.past.length) h.past.push(h.last);
-    h.future = [];
-    h.last = now;
-    h.at = Date.now();
-  };
   useEffect(() => {
+    const el = ref.current!, h = hist.current;
+    // (`fresh`: a step starts here whatever came just before; `whole`: and nothing typed after joins it)
+    const keep = (fresh: boolean, whole: boolean) => {
+      const now = Date.now();
+      if (fresh || now - h.at > 600 || !h.past.length) h.past.push(el.innerHTML);
+      h.future = [];
+      h.at = whole ? 0 : now;
+    };
+    const before = (e: InputEvent) => {
+      if (h.composing || e.isComposing || e.inputType.startsWith("history")) return;
+      const whole = /Paste|Drop|Cut|Replacement/.test(e.inputType);
+      keep(whole || window.getSelection()?.isCollapsed === false, whole);
+    };
+    const start = () => { keep(true, true); h.composing = true; };
+    const end = () => { h.composing = false; h.at = 0; };
     const step = (e: Event) => {
-      const el = ref.current, h = hist.current, back = (e as CustomEvent<string>).detail === "undo";
-      if (!el || document.activeElement !== el) return;
+      const back = (e as CustomEvent<string>).detail === "undo";
+      if (document.activeElement !== el || h.composing) return;
       const from = back ? h.past : h.future, to = back ? h.future : h.past;
       const was = from.pop();
       if (was === undefined) return;
-      to.push(el.innerText);
-      el.innerText = was;
-      h.last = was;
+      to.push(el.innerHTML);
+      el.innerHTML = was;
       h.at = 0;
       // (the caret at the end of what is there again)
       const range = document.createRange();
@@ -1386,8 +1390,16 @@ function TextEditor({ editor, shape, dark }: { editor: Editor; shape: Shape; dar
       sel?.removeAllRanges();
       sel?.addRange(range);
     };
+    el.addEventListener("beforeinput", before);
+    el.addEventListener("compositionstart", start);
+    el.addEventListener("compositionend", end);
     window.addEventListener("weld:text-history", step);
-    return () => window.removeEventListener("weld:text-history", step);
+    return () => {
+      el.removeEventListener("beforeinput", before);
+      el.removeEventListener("compositionstart", start);
+      el.removeEventListener("compositionend", end);
+      window.removeEventListener("weld:text-history", step);
+    };
   }, []);
 
   const finish = () => {
@@ -1397,8 +1409,6 @@ function TextEditor({ editor, shape, dark }: { editor: Editor; shape: Shape; dar
   };
   const onKey = (e: React.KeyboardEvent) => {
     e.stopPropagation();
-    // (typing over a selection is a step of its own: undo gives back what it replaced)
-    if (window.getSelection()?.isCollapsed === false) hist.current.at = 0;
     if (e.nativeEvent.isComposing) return; // Enter is choosing a candidate, not finishing
     if (e.key === "Escape" || (e.key === "Enter" && !e.shiftKey && !listed)) {
       e.preventDefault();
@@ -1419,7 +1429,7 @@ function TextEditor({ editor, shape, dark }: { editor: Editor; shape: Shape; dar
   };
   const sx = (x: number) => (x - store.cam.x) * z, sy = (y: number) => (y - store.cam.y) * z;
   // plain text only: nothing pasted brings its formatting or pictures with it
-  const common = { ref, contentEditable: "plaintext-only" as const, suppressContentEditableWarning: true, onKeyDown: onKey, onInput, onBlur: finish, spellCheck: false } as const;
+  const common = { ref, contentEditable: "plaintext-only" as const, suppressContentEditableWarning: true, onKeyDown: onKey, onBlur: finish, spellCheck: false } as const;
 
   if (listed && isBox(shape)) {
     // typed as a list under it, a point or a part a line, in the order they stand
