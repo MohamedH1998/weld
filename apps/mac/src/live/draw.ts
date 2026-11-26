@@ -150,7 +150,7 @@ export function draw(editor: Editor, thread: Id, ops: DrawOps): { made: Record<s
   // (how many things were left as the person left them: said as a failure, so a script that goes on to draw again stops)
   let heldN = 0;
   // what the person has made or changed counts too when it would go with something taken away: a line of theirs to it
-  const heldBy = (id: Id) => theirs(doc.shapes[id]) || doc.order.some((a) => { const w = doc.shapes[a]; return !!w && isArrow(w) && theirs(w) && (w.a.bind?.id === id || w.b.bind?.id === id) && ![w.a.bind?.id, w.b.bind?.id].some((e) => e && e !== id && isLive(doc.shapes[e])); });
+  const heldBy = (id: Id) => theirs(doc.shapes[id]) || doc.order.some((a) => { const w = doc.shapes[a]; return !!w && isArrow(w) && theirs(w) && (w.a.bind?.id === id || w.b.bind?.id === id) && ![w.a.bind?.id, w.b.bind?.id].some((e) => e && isLive(doc.shapes[e])); });
   ops = { story: asked, add: known("add", ops.add?.slice(0, LIMIT)), connect: known("connect", ops.connect?.slice(0, LIMIT)), change: known("change", ops.change?.slice(0, LIMIT)), remove: ops.remove?.slice(0, LIMIT), copy: known("copy", ops.copy?.slice(0, 10)), repeat: known("repeat", ops.repeat?.slice(0, 10)) };
   for (const a of ops.add ?? []) {
     const kind = a.kind ?? "rect";
@@ -660,8 +660,10 @@ export function draw(editor: Editor, thread: Id, ops: DrawOps): { made: Record<s
     const kept: Id[] = [];
     for (const [id, change] of patches) {
       if (!theirs(doc.shapes[id])) continue;
-      const c = { ...(change as Record<string, unknown>) };
-      const over = ["x", "y", "w", "h", "rot", "text"].filter((k) => k in c);
+      const c = { ...(change as Record<string, unknown>) }, was = doc.shapes[id] as unknown as Record<string, unknown>;
+      // (a value asked for that is what it already is changes nothing of theirs: it is simply left out)
+      const over = ["x", "y", "w", "h", "rot", "text"].filter((k) => k in c && c[k] !== was[k]);
+      for (const k of ["x", "y", "w", "h", "rot", "text"]) if (k in c && c[k] === was[k]) delete c[k];
       if (!over.length) continue;
       for (const k of over) delete c[k];
       if (Object.keys(c).length) patches.set(id, c);
@@ -688,6 +690,10 @@ export function draw(editor: Editor, thread: Id, ops: DrawOps): { made: Record<s
   const writing = s.editing;
   if (guard && writing && (remove.includes(writing) || patches.has(writing))) return { made: {}, changed: 0, removed: 0, problems: [`not done: the person is writing in #${writing} right now; try again in a moment`], held: 1 };
   const held = guard ? remove.filter(heldBy) : [];
+  // (a redraw that takes the old away and puts a new one down is done whole or not at all: with what it would take away
+  // held, putting its new one beside the old would leave two)
+  if (held.length && (put.length || ops.story || ops.copy?.length || ops.repeat?.length))
+    return { made: {}, changed: 0, removed: 0, problems: [`not done (any of it): the person has changed ${held.length === 1 ? "#" + held[0] : `${held.length} of what you would remove (${held.slice(0, 8).map((x) => "#" + x).join(" ")}${held.length > 8 ? " …" : ""})`} since you drew it, and this request also draws new things in its place. Read the board with weld look and keep their changes (change only what you need, or carry their order or wording back to wherever the drawing comes from); remove theirs only if the person asked you to, with "force": true.`], held: held.length };
   if (held.length) {
     heldN += held.length;
     for (const id of held) remove.splice(remove.indexOf(id), 1);
@@ -861,6 +867,9 @@ export function draw(editor: Editor, thread: Id, ops: DrawOps): { made: Record<s
     for (const [k, v] of Object.entries(made)) if (k !== v) namedF[k] = v;
     return { made: namedF, changed: patch.length, removed: remove.length, problems, held: heldN };
   }
+  // (what an agent makes, a copy of the person's work included, is its own: not marked as theirs)
+  for (let i = 0; i < put.length; i++) if (put[i]!.edited) { const { edited: _e, ...rest } = put[i]!; put[i] = rest as Shape; }
+  for (const byState of sceneAdds.values()) for (const [k, list] of byState) byState.set(k, list.map((sh) => { if (!sh.edited) return sh; const { edited: _e, ...rest } = sh; return rest as Shape; }));
   s.applyForeign(put, patch, remove, anyScene || story ? fixAll : undefined);
   // What it drew is connected to it, so it goes on seeing (and may go on changing) its own work. Shapes that are now
   // joined into one drawing are one connection, however many times it took to draw them. (Told to every moment of the

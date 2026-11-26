@@ -63,6 +63,7 @@ export default async ({ app, page, out, shot }) => {
   check("…and remove", (await shape(fresh)) === null && !/failed/.test(gone), gone);
 
   // a line of the person's to a card: removing the card would take their line, so the card stays
+  const tall = ids(draw({ add: [{ ref: "m", kind: "rect", text: "Line one of a card\nLine two of a card\nLine three of a card", x: 1400, y: 0, w: 140, h: 30 }] })).m;
   const two = ids(draw({ add: [{ ref: "a", kind: "rect", text: "API", x: 800, y: 0, w: 160, h: 60 }, { ref: "b", kind: "rect", text: "Billing", x: 800, y: 200, w: 160, h: 60 }, { ref: "x", kind: "rect", text: "Old", x: 1100, y: 0, w: 160, h: 60 }], connect: [{ from: "a", to: "x" }] }));
   await E(([b, x]) => { const st = window.__editor.store, d = st.doc, w = d.order.map((id) => d.shapes[id]).find((s) => s.kind === "arrow" && (s.a.bind?.id === x || s.b.bind?.id === x)); st.run(() => st.patch(w.id, w.a.bind?.id === x ? { a: { ...w.a, bind: { ...w.a.bind, id: b } } } : { b: { ...w.b, bind: { ...w.b.bind, id: b } } })); st.emit(); }, [two.b, two.x]);
   const viaLine = draw({ remove: [`#${two.b}`] });
@@ -86,6 +87,24 @@ export default async ({ app, page, out, shot }) => {
   check("while the person writes in a card, the agent's change to it waits (told to try again)", /writing in|in the middle of changing/.test(busy) && /^\(failed\)/.test(busy) && !!(await shape(c2)), busy);
   await page.keyboard.press("Escape");
   await wait(300);
+
+  // an agent's copy of the person's card is the agent's own: it may rename it
+  const cp = draw({ copy: [{ of: `#${c3}`, dx: 600, dy: 0, ref: "cp" }] });
+  const cpId = ids(cp).cp ?? await E((c3) => { const d = window.__editor.store.doc; return d.order.filter((id) => d.shapes[id]?.text === d.shapes[c3]?.text && id !== c3).at(-1); }, c3);
+  const ren = draw({ change: [{ id: `#${cpId}`, text: "#4 Acme search (copy)" }] });
+  check("an agent's copy of the person's card is its own: it may reword it", (await shape(cpId))?.text === "#4 Acme search (copy)" && !/failed/.test(ren), { cp, ren });
+  // asking for what a card of theirs already is (a redraw restating it) and a new colour: done, not failed
+  const same = draw({ change: [{ id: `#${c3}`, x: c3now.x, y: c3now.y, text: c3now.text, tone: "amber" }] });
+  check("restating a card of theirs as it is, with a new colour, changes the colour and is not a failure", (await shape(c3)).tone === "amber" && !/failed/.test(same), same);
+  // a line of the person's to the conversation itself (a connection) does not hold a card
+  const k1 = ids(draw({ add: [{ ref: "k", kind: "rect", text: "Connected", x: 0, y: 900, w: 200, h: 60 }] })).k;
+  await E(([k, t]) => { const st = window.__editor.store, a = st.doc.shapes[k]; st.run(() => st.put({ id: "conn", kind: "arrow", a: { x: a.x + a.w, y: a.y + 30, bind: { id: k, nx: 1, ny: 0.5 } }, b: { x: a.x + 400, y: a.y + 30, bind: { id: t, nx: 0, ny: 0.5 } }, text: "", tone: "ink" })); st.emit(); }, [k1, T]);
+  const rk = draw({ remove: [`#${k1}`] });
+  check("a line of the person's to the conversation itself does not hold a card back", (await shape(k1)) === null && !/failed/.test(rk), rk);
+  // a redraw (take the old away, put a new one down) with something of theirs in it: nothing at all is done
+  const before = await E(() => window.__editor.store.doc.order.length);
+  const both = draw({ remove: [`#${c3}`], add: [{ ref: "nw", kind: "rect", text: "#4 Acme search", x: 0, y: 1000, w: 260, h: 60 }] });
+  check("a redraw with a card of theirs in it does nothing at all, and fails saying so", /not done \(any of it\)/.test(both) && /^\(failed\)/.test(both) && (await E(() => window.__editor.store.doc.order.length)) === before && !!(await shape(c3)), both);
 
   // asked by the person ("start the board again"), it may: with force
   const forced = draw({ remove: [`#${c0}`], force: true });
@@ -116,7 +135,7 @@ export default async ({ app, page, out, shot }) => {
   await page.reload();
   await page.waitForFunction(() => !!window.__editor);
   await wait(1500);
-  check("after a reload, the person's changes are still theirs, the agent's still not", (await mark(c3)) && !(await mark(two.a)));
+  check("after a reload, the person's changes are still theirs, the agent's still not (a card fitted to its words as the board opens included)", (await mark(c3)) && !(await mark(two.a)) && !(await mark(tall)), { tall: await mark(tall) });
   const after = draw({ remove: [`#${c3}`] });
   check("…and kept", /not removed/.test(after) && !!(await shape(c3)), after);
 };

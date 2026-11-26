@@ -317,13 +317,18 @@ export class Store {
   /** Put shapes down on someone else's behalf (an agent): no step to undo. They are written into every moment the
    *  person can step back or forward to, as if they had always been there: undoing is of the person's own steps, and
    *  only a step of theirs (moving one, removing one) changes them. */
-  putForeign(...shapes: Shape[]) {
+  /** Writes that are nobody's doing (an agent's, the board fitting words to a font): not marked as the person's. */
+  unmarked<T>(fn: () => T): T {
+    const was = this.foreign;
     this.foreign = true;
     try {
-      this.put(...shapes);
+      return fn();
     } finally {
-      this.foreign = false;
+      this.foreign = was;
     }
+  }
+  putForeign(...shapes: Shape[]) {
+    this.unmarked(() => this.put(...shapes));
     const into = (st: Step): Step => {
       const missing = shapes.filter((s) => !st.doc.shapes[s.id]);
       if (!missing.length) return st;
@@ -337,7 +342,7 @@ export class Store {
     if (this.pending) {
       const was = this.doc;
       this.doc = this.pending.doc;
-      this.put(...shapes);
+      this.unmarked(() => this.put(...shapes));
       this.pending = { ...this.pending, doc: this.doc };
       this.doc = was;
     }

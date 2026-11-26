@@ -195,7 +195,8 @@ export function CanvasView() {
     // and words measured before it arrives would be laid out to the wrong width
     void Promise.all([document.fonts?.load('400 12px "Figtree Variable"'), document.fonts?.load('500 12px "Figtree Variable"'), document.fonts?.load('700 12px "Figtree Variable"'), document.fonts?.ready]).then(() => {
       clearTextCache();
-      editor.refit();
+      // (fitting words to the font as the board opens is nobody's change: what an agent drew stays the agent's)
+      store.unmarked(() => editor.refit());
       dirty = true;
     });
     const frame = () => {
