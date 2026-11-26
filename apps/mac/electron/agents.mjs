@@ -1126,8 +1126,13 @@ export class Threads {
       this.save(id);
     }
     for (const id of [...this.live.keys()]) this.drop(id);
-    // (quitting: what is being let go gently, and what it started, is ended now, not left to finish after Weld has gone)
-    for (const lp of this.letGo) (signal(lp.proc, "SIGTERM"), signal(lp.proc, "SIGKILL"));
+    // (quitting: what is being let go is given a moment to finish by itself (saving what its session cost), then it, and
+    // what it started, is ended: never left to run after Weld has gone)
+    const going = [...this.letGo];
+    const finished = Promise.all(going.map((lp) => (lp.proc.exitCode !== null || lp.proc.signalCode !== null ? null : new Promise((done) => lp.proc.once("exit", done)))));
+    const ended = Promise.race([finished, new Promise((r) => setTimeout(r, 2000))]).then(() => {
+      for (const lp of going) (signal(lp.proc, "SIGTERM"), signal(lp.proc, "SIGKILL"));
+    });
     for (const c of this.codexes.values()) c.shutdown();
     // everything not yet written is written, in order, behind whatever writing is already under way (a thread whose last
     // write failed is written whole, whether or not anything new was said)
@@ -1135,7 +1140,7 @@ export class Threads {
     this.retryTimers.clear();
     for (const id of new Set([...this.timers.keys(), ...this.unsaved.keys()])) this.save(id);
     this.closed = true;
-    return Promise.all([...this.chains.values()]);
+    return Promise.all([...this.chains.values(), ended]);
   }
   /** Before the app goes: each thread not saved is written whole once more, behind whatever writing it has under way.
    *  Answers why any still aren't (empty when all are). */
