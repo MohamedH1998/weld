@@ -2,9 +2,10 @@
 // session id"). Weld lets go of its own run of it before the launcher can start one, holds what is said meanwhile, and
 // takes it back when that run is plainly gone; the launcher works once, in the thread's folder, on that session, and not
 // at all once taken back. A stand-in for Claude Code (test/fake/claude) and for the login shell keep this off real agents:
-//   PATH="$PWD/test/fake:$PATH" SHELL="$PWD/test/fake/shell" node scripts/shot.mjs out/elsewhere test/elsewhere.mjs
+// (the stand-in takes a moment to wind up when let go, as a real one may)
+//   FAKE_CLAUDE_SAVE_MS=1500 FAKE_CLAUDE_TERM_MS=1500 PATH="$PWD/test/fake:$PATH" SHELL="$PWD/test/fake/shell" node scripts/shot.mjs out/elsewhere test/elsewhere.mjs
 import { spawn } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -18,7 +19,8 @@ export default async ({ app, page, shot }) => {
   check("(the Claude this Weld runs is the stand-in)", !!bin && bin.endsWith("test/fake/claude"), bin);
   if (!bin?.endsWith("test/fake/claude")) return;
   const T = await E(() => Object.values(window.__editor.store.doc.shapes).find((s) => s.kind === "thread")?.id);
-  await E((T) => window.weld.thread.set(T, { agent: "claude", mode: "full" }), T);
+  const home = mkdtempSync(path.join(os.tmpdir(), "weld-elsewhere-"));
+  await E(([T, home]) => window.weld.thread.set(T, { agent: "claude", mode: "full", cwd: home }), [T, home]);
   const get = () => E((T) => window.weld.thread.get(T), T);
   const oks = async () => (await get()).items.filter((i) => i.kind === "text" && /^ok \d/.test(i.text ?? "")).map((i) => i.text);
   // (Weld's own scripted runs of the stand-in, and runs of a session outside Weld, by what they were started with)
@@ -40,7 +42,10 @@ export default async ({ app, page, shot }) => {
   check("Copy session id copies it", (await E(() => window.__copied)).join() === sid);
   await shot?.("menu");
   await page.locator(".thread-elsewhere button", { hasText: "Continue in Claude Code" }).click({ force: true });
-  for (let t = 0; t < 40 && !(await get()).meta.outside; t++) await wait(150);
+  for (let t = 0; t < 40 && !(await get()).meta.outside; t++) await wait(50);
+  const half = await E((T) => window.weld.thread.takeBack(T), T);
+  check("while Weld's own run is still winding up, it can't be taken back halfway", !!half.pending && !!(await get()).meta.outside, half);
+  for (let t = 0; t < 60 && (await get()).meta.outside?.pending; t++) await wait(150);
   await wait(300);
   check("continued in Claude Code, the thread says so", !!(await get()).meta.outside && (await page.isVisible(`[data-live="${T}"] .thread-outside`)));
   check("…and Weld's own run of it has already ended", (await runs(sid)).weld === 0, await runs(sid));
@@ -59,8 +64,11 @@ export default async ({ app, page, shot }) => {
   await wait(2500);
   const sessFile = path.join(os.tmpdir(), `weld-fake-claude-${sid}.json.cwd`);
   const ranIn = existsSync(sessFile) ? readFileSync(sessFile, "utf8") : null;
-  check("the launcher starts Claude Code on that session, in the thread's folder", (await runs(sid)).outside === 1 && ranIn === (await E((c) => c, cwd)), { runs: await runs(sid), ranIn, cwd });
-  check("…and is used up (it took itself away)", !existsSync(r.script));
+  check("the launcher starts Claude Code on that session, in the thread's folder", (await runs(sid)).outside === 1 && !!ranIn && realpathSync(ranIn) === realpathSync(cwd), { runs: await runs(sid), ranIn, cwd });
+  const again = spawn("/bin/sh", [r.script], { stdio: ["pipe", "ignore", "ignore"] });
+  await wait(1500);
+  check("…and runs once: run again, it starts nothing more", (await runs(sid)).outside === 1);
+  again.kill("SIGKILL");
   check("while it runs there, taking it back asks to be sure", !!(await E((T) => window.weld.thread.takeBack(T), T)).live && !!(await get()).meta.outside);
   // (left running a while, as a person's session there is: Weld looks every few seconds)
   await wait(9000);
@@ -84,4 +92,17 @@ export default async ({ app, page, shot }) => {
   const copy = await E(async (T) => (await window.weld.thread.fork(T, `fork${Date.now().toString(36)}`)).meta.outside ?? null, T);
   check("a thread branched from it while it is out is not out itself", copy === null, copy);
   await E((T) => window.weld.thread.takeBack(T, true), T);
+
+  // a short visit: opened and closed before Weld has looked; the launcher says so, and Weld takes it back
+  const r3 = await E((T) => window.weld.thread.handOut(T), T);
+  spawn("/bin/sh", [r3.script], { stdio: ["ignore", "ignore", "ignore"] });
+  const quick = await (async () => { for (let t = 0; t < 40; t++) { if (!(await get()).meta.outside) return true; await wait(250); } return false; })();
+  check("a run there that ends at once is noticed, and it is Weld's again", quick);
+  // its folder gone before Terminal could start it there: said, and Weld's again
+  const r4 = await E((T) => window.weld.thread.handOut(T), T);
+  rmSync(home, { recursive: true, force: true });
+  spawn("/bin/sh", [r4.script], { stdio: ["ignore", "ignore", "ignore"] });
+  let note = null;
+  for (let t = 0; t < 40 && !note; t++) { const th = await get(); if (!th.meta.outside) note = th.items.filter((i) => i.kind === "note").at(-1)?.text ?? ""; else await wait(250); }
+  check("a launcher that couldn't open the thread's folder says so, and it is Weld's again", /Couldn't open its folder/.test(note ?? ""), note);
 };

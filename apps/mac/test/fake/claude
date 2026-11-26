@@ -30,3 +30,5 @@ process.stdin.on("data", (d) => {
     out({ type: "result", subtype: "success", session_id: sid, is_error: false, duration_ms: 10, num_turns: 1, result: `ok ${n}`, total_cost_usd: Math.round(n * 0.1 * 100) / 100 });
   }
 });
+// (FAKE_CLAUDE_TERM_MS: how long it lingers when told to stop, as a run winding up may)
+process.on("SIGTERM", () => setTimeout(() => process.exit(0), Number(process.env.FAKE_CLAUDE_TERM_MS || 0)));

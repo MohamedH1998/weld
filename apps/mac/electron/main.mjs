@@ -575,17 +575,20 @@ const threads = new Threads({
     }
   },
 });
-// threads that were out in their agent's own app when Weld last closed are watched again
+// threads that were out in their agent's own app when Weld last closed are watched again; one Weld stopped while sending
+// out (or bringing back) is put back as it was
 void envReady.then(() => {
-  for (const [id, sid] of Object.entries(outsideNow())) {
+  for (const [id, o] of Object.entries(outsideNow())) {
     let t = null;
     try {
       t = threads.get(id);
     } catch {
       /* gone */
     }
-    if (t?.meta?.outside?.sid === sid) watchOutside(id, sid, { restored: true });
-    else keepOutside(id, null);
+    if (o?.pending || !t?.meta?.outside || t.meta.outside.pending) {
+      keepOutside(id, null);
+      if (t?.meta?.outside) threads.takeBack(id, { send: false, note: "Not opened elsewhere (Weld was closed meanwhile)" });
+    } else watchOutside(id, o.sid, o.dir, { restored: true });
   }
 });
 function refreshBadge() {
@@ -995,13 +998,13 @@ function runningOutside(sid) {
 /** While a thread's session is open in its agent's own app: looked for every few seconds; once a run of it has been
  *  seen there and then is plainly gone (two looks in a row), the thread is Weld's again. Until one has been seen it stays
  *  out (Terminal may be slow to start it, or the person may not have yet): "Take it back" is there for that. */
-const outsideWatch = new Map(), outsideTickets = new Map();
+const outsideWatch = new Map();
 // (which threads are out, kept on disk, so a Weld opened again goes on watching them)
 const outsideFile = () => file("outside.json");
 const outsideNow = () => readJson(outsideFile(), {}) ?? {};
-const keepOutside = (id, sid) => {
+const keepOutside = (id, what) => {
   const all = outsideNow();
-  if (sid) all[id] = sid;
+  if (what) all[id] = what;
   else delete all[id];
   try {
     writeFileSync(outsideFile(), JSON.stringify(all));
@@ -1009,30 +1012,35 @@ const keepOutside = (id, sid) => {
     /* kept in memory only */
   }
 };
-function watchOutside(id, sid, { restored = false } = {}) {
+function watchOutside(id, sid, dir, { restored = false } = {}) {
   outsideWatch.get(id)?.();
-  keepOutside(id, sid);
-  let seen = restored ? null : false, misses = 0, stopped = false, timer;
+  let misses = 0, stopped = false, timer;
   const look = async () => {
     if (stopped) return;
-    const there = await runningOutside(sid);
+    // (how the launcher's run ended, if it has: written by it as it ends, or when it couldn't open the thread's folder)
+    let ended = null;
+    try {
+      ended = dir ? readFileSync(path.join(dir, "ended"), "utf8").trim() : null;
+    } catch {
+      /* not ended */
+    }
+    if (ended !== null) return (stop(), threads.takeBack(id, { send: !restored && ended !== "cd", note: ended === "cd" ? `Couldn't open its folder in ${threads.get(id)?.meta?.outside?.app ?? "Terminal"}` : "" }));
+    // (a run seen to be gone (two looks in a row, its launcher having started it) is ended too: its window was closed)
+    const claimed = !dir || existsSync(path.join(dir, "claimed"));
+    const there = claimed ? await runningOutside(sid) : null;
     if (stopped) return;
-    if (there === true) (seen = true), (misses = 0);
-    else if (there === false && seen !== false) misses += 1;
-    // (after a restart nothing is known of what was seen: gone twice in a row is gone; what waited, waits for the person)
-    if (misses >= 2) return (stop(), threads.takeBack(id, { send: !restored }));
-    timer = setTimeout(look, 4000);
+    misses = there === false ? misses + 1 : 0;
+    if (claimed && misses >= 2) return (stop(), threads.takeBack(id, { send: !restored }));
+    timer = setTimeout(look, 2000);
   };
-  timer = setTimeout(look, 4000);
+  timer = setTimeout(look, 1500);
   const stop = () => {
     stopped = true;
     clearTimeout(timer);
     outsideWatch.delete(id);
     keepOutside(id, null);
-    const ticket = outsideTickets.get(id);
-    outsideTickets.delete(id);
     try {
-      if (ticket) rmSync(path.dirname(ticket), { recursive: true, force: true });
+      if (dir) rmSync(dir, { recursive: true, force: true });
     } catch {
       /* gone */
     }
@@ -1870,29 +1878,40 @@ function wire() {
   // and takes it back once that app has let go of it (or when the person says so)
   ipcMain.handle("thread:handOut", async (_e, id) => {
     await envReady;
+    if (outsideNow()[id]) return { error: "It is already being opened elsewhere" };
+    // (written down before anything changes: a Weld that stops partway through puts it back as it was when it opens)
+    keepOutside(id, { pending: true });
     const r = await threads.handOut(id);
-    if (r.error) return r;
+    if (r.error) return (keepOutside(id, null), r);
     const bin = which(r.agent);
-    if (!bin) return (threads.takeBack(id, { send: false, note: `${r.app} wasn't found on this Mac` }), { error: `${r.app} wasn't found on this Mac` });
-    // The launcher: a script of its own in a folder of its own (made new, readable by this account only), used once:
-    // it runs only while its ticket is there, and takes the ticket and itself away as it starts; taking the thread back
-    // before it has run takes the ticket away, so a Terminal that opens late starts nothing.
+    if (!bin) return (keepOutside(id, null), threads.takeBack(id, { send: false, note: `${r.app} wasn't found on this Mac` }), { error: `${r.app} wasn't found on this Mac` });
+    // The launcher, in a folder of its own (new, this account's only): it starts the agent only once it has claimed the
+    // folder (mkdir, which one only can), so it runs once; taking the thread back claims it first, so a Terminal that
+    // opens late starts nothing; and it writes down how its run ended, which Weld reads (a short visit, a failed cd).
     const q = (x) => `'${String(x).replace(/'/g, `'\\''`)}'`;
     let dir;
     try {
       dir = mkdtempSync(path.join(os.tmpdir(), "weld-continue-"));
-      const ticket = path.join(dir, "ticket"), file = path.join(dir, `Continue in ${r.app}.command`);
-      writeFileSync(ticket, "", { mode: 0o600, flag: "wx" });
-      const args = r.agent === "claude" ? ["--resume", r.sid] : ["resume", r.sid];
-      writeFileSync(file, `#!/bin/sh\n[ -e ${q(ticket)} ] || { echo "This was taken back by Weld."; exit 0; }\nrm -f ${q(ticket)} "$0"; rmdir ${q(dir)} 2>/dev/null\nexport PATH=${q(process.env.PATH || "")}\ncd ${q(r.cwd)} && exec ${q(bin)} ${args.map(q).join(" ")}\n`, { mode: 0o700, flag: "wx" });
-      outsideTickets.set(id, ticket);
-      watchOutside(id, r.sid);
+      const file = path.join(dir, `Continue in ${r.app}.command`), args = r.agent === "claude" ? ["--resume", r.sid] : ["resume", r.sid];
+      writeFileSync(file, [
+        "#!/bin/sh",
+        `D=${q(dir)}`,
+        `mkdir "$D/claimed" 2>/dev/null || { echo "Weld has already taken this back, or it is open in another window."; exit 0; }`,
+        `export PATH=${q(process.env.PATH || "")}`,
+        `cd ${q(r.cwd)} || { echo cd > "$D/ended"; exit 1; }`,
+        `${q(bin)} ${args.map(q).join(" ")}`,
+        `echo "$?" > "$D/ended"`,
+        "",
+      ].join("\n"), { mode: 0o700, flag: "wx" });
+      keepOutside(id, { sid: r.sid, dir, app: r.app });
+      watchOutside(id, r.sid, dir);
       if (TEST) return { app: r.app, sid: r.sid, script: file };
       const failed = await shell.openPath(file);
       if (failed) throw new Error(failed);
       return { app: r.app, sid: r.sid };
     } catch (e) {
       outsideWatch.get(id)?.();
+      keepOutside(id, null);
       try {
         if (dir) rmSync(dir, { recursive: true, force: true });
       } catch {
@@ -1902,11 +1921,23 @@ function wire() {
       return { error: `Couldn't open it in ${r.app}: ${e?.message || e}` };
     }
   });
-  // taken back by the person: not while a run of it is still going there, unless they say so again
+  // taken back by the person: not halfway out, and not while a run of it there is going (or starting), unless they say
+  // so again; a launcher not yet started is claimed first, so it never starts
   ipcMain.handle("thread:takeBack", async (_e, id, force) => {
-    const sid = threads.get(id)?.meta?.outside?.sid;
-    if (sid && !force && (await runningOutside(sid)) === true) return { live: true };
+    const o = outsideNow()[id], meta = threads.get(id)?.meta?.outside;
+    if (meta?.pending || o?.pending) return { pending: true };
+    if (o?.dir && !force) {
+      let claimed = false;
+      try {
+        mkdirSync(path.join(o.dir, "claimed"));
+        claimed = true;
+      } catch {
+        /* the launcher has it */
+      }
+      if (!claimed && !existsSync(path.join(o.dir, "ended"))) return { live: true };
+    } else if (!force && meta?.sid && (await runningOutside(meta.sid)) === true) return { live: true };
     outsideWatch.get(id)?.();
+    keepOutside(id, null);
     threads.takeBack(id);
     return {};
   });

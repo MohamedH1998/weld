@@ -138,18 +138,27 @@ export class Threads {
     if (t.meta.outside) return { error: `It is already open in ${t.meta.outside.app}` };
     if (t.meta.status === "running" || this.running.has(id) || this.starting.has(id)) return { error: "It is working: continue it once it has finished" };
     const app = agent === "claude" ? "Claude Code" : "Codex";
-    // (held from now: nothing of Weld's starts it again while its own run is let go)
-    this.meta(id, { outside: { app, sid, since: now() } });
+    // (held from now, and "on its way" until Weld's own run of it has ended: nothing of Weld's starts it, and it can't be
+    // taken back halfway)
+    this.meta(id, { outside: { app, sid, since: now(), pending: true } });
     const lp = this.live.get(id), proc = lp && !lp.dead ? lp.proc : null;
     const codex = agent === "codex" ? this.codexes.get(id) : null, cproc = codex?.proc ?? null;
     this.drop(id);
     if (codex) (clearTimeout(this.codexIdle.get(id)), codex.shutdown(), this.codexes.delete(id));
-    const ended = (p) => (!p || p.exitCode !== null || p.signalCode !== null ? Promise.resolve() : new Promise((done) => p.once("exit", () => done())));
-    await Promise.race([Promise.all([ended(proc), ended(cproc)]), new Promise((r) => setTimeout(r, 7000))]);
-    if ([proc, cproc].some((p) => p && p.exitCode === null && p.signalCode === null)) {
+    const alive = (p) => !!p && p.exitCode === null && p.signalCode === null;
+    const ended = (p) => (!alive(p) ? Promise.resolve() : new Promise((done) => p.once("exit", () => done())));
+    const both = () => Promise.all([ended(proc), ended(cproc)]);
+    await Promise.race([both(), new Promise((r) => setTimeout(r, 7000))]);
+    // (one that won't stop is ended, and waited for a little longer)
+    if ([proc, cproc].some(alive)) {
+      for (const p of [proc, cproc]) if (alive(p)) signal(p, "SIGKILL");
+      await Promise.race([both(), new Promise((r) => setTimeout(r, 2000))]);
+    }
+    if ([proc, cproc].some(alive)) {
       this.meta(id, { outside: null });
       return { error: "Weld's own run of it did not stop: try again in a moment" };
     }
+    this.meta(id, { outside: { app, sid, since: this.get(id).meta.outside?.since ?? now() } });
     this.put(id, { kind: "note", id: `n${now().toString(36)}o`, text: `Continued in ${app}`, at: now() });
     return { agent, app, sid, cwd: t.meta.cwd || os.homedir() };
   }
@@ -158,12 +167,13 @@ export class Threads {
   takeBack(id, { send = true, note = "" } = {}) {
     const t = this.all.get(id);
     if (!t?.meta?.outside) return;
-    const app = t.meta.outside.app;
+    const { app, since } = t.meta.outside;
     this.meta(id, { outside: null });
     this.put(id, { kind: "note", id: `n${now().toString(36)}b`, text: note || `Back from ${app}`, at: now() });
-    if (send && !this.gone.has(id) && t.meta.queue.length && t.meta.status !== "running") {
-      const [first, ...rest] = t.meta.queue;
-      this.meta(id, { queue: rest });
+    // (only what was said while it was out goes by itself; what was waiting from before still waits for the person)
+    const first = t.meta.queue[0];
+    if (send && !this.gone.has(id) && first && first.at >= since && t.meta.status !== "running") {
+      this.meta(id, { queue: t.meta.queue.slice(1) });
       this.start(id, first.text, extraOf(first));
     }
   }

@@ -217,8 +217,14 @@ export function ThreadNode({ box, editor, active, far }: NodeProps) {
       <div className="contents" style={folded ? { display: "none" } : undefined}>
         {meta?.outside && (
           <div className="thread-outside" role="status">
-            <span>Open in {meta.outside.app}. Weld picks it back up when you close it there{meta.queue?.length ? `, and sends what you've said here` : ""}.</span>
-            <TakeBack id={box.id} app={meta.outside.app} />
+            {meta.outside.pending ? (
+              <span>Opening in {meta.outside.app}…</span>
+            ) : (
+              <>
+                <span>Open in {meta.outside.app}. Weld picks it back up when you close it there{meta.queue?.some((q) => q.at >= meta.outside!.since) ? `, and sends what you've said here` : ""}.</span>
+                <TakeBack id={box.id} app={meta.outside.app} />
+              </>
+            )}
           </div>
         )}
       <Sees editor={editor} id={box.id} />
@@ -435,8 +441,8 @@ function TakeBack({ id, app }: { id: Id; app: string }) {
   const [live, setLive] = useState(false);
   return (
     <>
-      {live && <span className="sub">Still open in {app}.</span>}
-      <button type="button" className="live-chip ctl" onMouseDown={(e) => e.preventDefault()} onClick={async () => setLive(!!(await weld.thread.takeBack(id, live)).live)}>
+      {live && <span className="sub">Still open (or opening) in {app}.</span>}
+      <button type="button" className="live-chip ctl" onMouseDown={(e) => e.preventDefault()} onClick={async () => { const r = await weld.thread.takeBack(id, live); setLive(!!r.live || !!r.pending); }}>
         {live ? "Take it back anyway" : "Take it back"}
       </button>
     </>
@@ -453,7 +459,8 @@ function Elsewhere({ id, agent, sid }: { id: Id; agent: "claude" | "codex"; sid:
   useEffect(() => {
     if (!at) return;
     const away = (e: Event) => !here.current?.contains(e.target as Node) && !menu.current?.contains(e.target as Node) && setAt(null);
-    const esc = (e: KeyboardEvent) => e.key === "Escape" && setAt(null);
+    // (Escape closes the menu, and only the menu)
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && (e.preventDefault(), e.stopImmediatePropagation(), setAt(null));
     window.addEventListener("pointerdown", away, true);
     window.addEventListener("wheel", away, true);
     window.addEventListener("keydown", esc, true);
@@ -463,7 +470,7 @@ function Elsewhere({ id, agent, sid }: { id: Id; agent: "claude" | "codex"; sid:
     setSaid("");
     const r = here.current?.getBoundingClientRect();
     // (kept inside the window: under the button, or above it when there is no room below)
-    setAt((a) => (a || !r ? null : { right: Math.max(8, window.innerWidth - r.right), top: r.bottom + 4 + 120 > window.innerHeight ? Math.max(8, r.top - 4 - 120) : r.bottom + 4 }));
+    setAt((a) => (a || !r ? null : { right: Math.min(Math.max(8, window.innerWidth - r.right), Math.max(8, window.innerWidth - 8 - 260)), top: r.bottom + 4 + 120 > window.innerHeight ? Math.max(8, r.top - 4 - 120) : r.bottom + 4 }));
   };
   return (
     <>

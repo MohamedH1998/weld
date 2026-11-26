@@ -45,7 +45,7 @@ export interface Item {
 export interface Meta {
   agent: Agent;
   /** Its session open in its agent's own app (Weld holds what is said here until it comes back). */
-  outside?: { app: string; sid: string; since: number } | null;
+  outside?: { app: string; sid: string; since: number; pending?: boolean } | null;
   mode: Mode;
   /** The model asked for, and the agent it was asked of (another agent goes with its own default). */
   model?: string;
@@ -188,7 +188,7 @@ export interface Weld {
     get: (id: string) => Promise<Thread>;
     send: (id: string, msg: { text: string; keys?: string[]; cwd?: string }) => Promise<void>;
     handOut: (id: string) => Promise<{ error?: string; app?: string; sid?: string; script?: string }>;
-    takeBack: (id: string, force?: boolean) => Promise<{ live?: boolean }>;
+    takeBack: (id: string, force?: boolean) => Promise<{ live?: boolean; pending?: boolean }>;
     stop: (id: string) => Promise<void>;
     warm: (id: string) => void;
     set: (id: string, change: Partial<Pick<Meta, "agent" | "mode" | "cwd" | "title" | "smith">>) => Promise<Meta>;
