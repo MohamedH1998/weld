@@ -132,6 +132,18 @@ export default async ({ app, page, out }) => {
     return { y0, y1, ys, g };
   });
   check("a drawing wired to a terminal since moved, duplicated with it: the copy's wire stays at the terminal through its moments", jump.y0 !== undefined && Math.abs(jump.y1 - jump.y0) < 1 && (jump.ys ?? []).every((y) => Math.abs(y - jump.y0) < 1), jump);
+  // a terminal in a still group, picked with a moving drawing: "hide in this moment" leaves it, and its wire, alone
+  const hid = await E(() => {
+    const ed = window.__editor, st = ed.store;
+    st.run(() => { st.put({ id: "hb1", kind: "rect", x: 15000, y: 0, w: 160, h: 80, text: "Acme", tone: "ink", fill: "tint", group: "sg3" }); st.put({ id: "ht1", kind: "terminal", x: 15300, y: 0, w: 400, h: 260, text: "", tone: "ink", fill: "none", group: "sg3", live: {} }); st.put({ id: "hw1", kind: "arrow", tone: "ink", group: "sg3", a: { x: 15160, y: 40, bind: { id: "hb1", ax: 1, ay: 0.5 } }, b: { x: 15300, y: 130, bind: { id: "ht1", ax: 0, ay: 0.5 } } }); st.put({ id: "hm1", kind: "rect", x: 15000, y: 400, w: 160, h: 80, text: "Moves", tone: "ink", fill: "tint" }); });
+    st.select(["hm1"]); ed.animate(); ed.leave?.();
+    st.select(["ht1", "hm1"]);
+    const g = ed.sceneGroup;
+    ed.hide(true);
+    const d = st.doc;
+    return { g: !!g, term: !!d.shapes.ht1?.away, wire: !!d.shapes.hw1?.away };
+  });
+  check("a terminal in a still group picked with a moving drawing: hiding in a moment leaves it and its wire on show", hid.g && !hid.term && !hid.wire, hid);
   check("grouped with a still group holding a box and a terminal: the box joins, the terminal stands apart, the moving drawing stays picked", grouped.box === g4 && grouped.term === null && grouped.whole && grouped.scene === g4, grouped);
   // a wire from a drawing that plays to a conversation stays joined to it, saved and opened twice, stepping through it
   const joined = await E(([g, T]) => {

@@ -1940,8 +1940,9 @@ export class Editor {
   /** Take what is selected out of the moment on show, or bring it back: it stays in the others. */
   hide(on: boolean) {
     const s = this.store, g = this.sceneGroup;
-    // what sits inside a panel is hidden and shown with it
-    const set = this.withinside(s.sel);
+    // what sits inside a panel is hidden and shown with it (a conversation, terminal or page picked along, which is no
+    // part of the drawing, is never hidden in its moments, nor are the wires to it on that account)
+    const set = this.withinside(new Set([...s.sel].filter((id) => !isLive(s.doc.shapes[id]) || (!!g && s.doc.shapes[id]?.group === g))));
     // a wire joined to a thing goes when the thing goes (it would end in thin air), and comes back with it
     // once whatever is at its other end is there too
     for (const id of s.doc.order) {
