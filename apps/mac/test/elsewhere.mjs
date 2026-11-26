@@ -84,6 +84,10 @@ export default async ({ app, page, shot, out }) => {
   for (let t = 0; t < 40 && (await oks()).length < 2; t++) await wait(250);
   await wait(1500);
   check("…and goes when sent, the other still waiting for its own Send (not taken next)", (await oks()).join() === "ok 1,ok 2" && (await get()).meta.queue.length === 1, { oks: await oks(), queue: (await get()).meta.queue.length });
+  // (a Stop doesn't throw away what waits for its own Send)
+  await E((T) => window.weld.thread.stop(T), T);
+  await wait(300);
+  check("a Stop keeps what is still waiting for its own Send", (await get()).meta.queue.length === 1, (await get()).meta.queue);
   await E(([T, at]) => window.weld.thread.unqueue(T, at), [T, (await get()).meta.queue[0].at]);
 
   // a launcher that has claimed its folder and is still starting (stalled, say, before it reaches the agent) counts as live

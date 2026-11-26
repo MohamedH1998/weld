@@ -152,13 +152,15 @@ export class Threads {
     const ended = (p) => (!alive(p) ? Promise.resolve() : new Promise((done) => p.once("exit", () => done())));
     // (and any run of it Weld let go a moment ago, still finishing)
     const both = () => Promise.all([ended(proc), ended(cproc), this.exiting.get(id) ?? null]);
+    // (its Codex servers let go earlier, known until they have gone)
+    const others = () => [...(this.retired?.get(id) ?? [])];
     await Promise.race([both(), new Promise((r) => setTimeout(r, 7000))]);
     // (one that won't stop is ended, and waited for a little longer)
-    if ([proc, cproc].some(alive)) {
-      for (const p of [proc, cproc]) if (alive(p)) signal(p, "SIGKILL");
+    if ([proc, cproc, ...others()].some(alive)) {
+      for (const p of [proc, cproc, ...others()]) if (alive(p)) signal(p, "SIGKILL");
       await Promise.race([both(), new Promise((r) => setTimeout(r, 2000))]);
     }
-    if ([proc, cproc].some(alive)) {
+    if ([proc, cproc, ...others()].some(alive)) {
       this.meta(id, { outside: null });
       return { error: "Weld's own run of it did not stop: try again in a moment" };
     }
@@ -171,7 +173,13 @@ export class Threads {
     const c = this.codexes.get(id), p = c?.proc;
     this.codexes.delete(id);
     if (p && p.exitCode === null && p.signalCode === null) {
-      const done = Promise.race([new Promise((r) => p.once("exit", () => r())), new Promise((r) => setTimeout(r, 6000))]);
+      // (known until it has gone, however long: one that hasn't gone after 6 s is ended)
+      if (!this.retired) this.retired = new Map();
+      const set = this.retired.get(id) ?? new Set();
+      this.retired.set(id, set.add(p));
+      const kill = setTimeout(() => signal(p, "SIGKILL"), 6000);
+      kill.unref?.();
+      const done = new Promise((r) => p.once("exit", () => (clearTimeout(kill), set.delete(p), set.size || this.retired.get(id) !== set || this.retired.delete(id), r())));
       const was = this.exiting.get(id);
       const both = was ? Promise.all([was, done]) : done;
       this.exiting.set(id, both);
@@ -180,11 +188,14 @@ export class Threads {
     c?.shutdown();
   }
   /** Where the launcher for a thread out in its agent's own app is (kept with the thread, so it can be claimed later). */
-  outsideAt(id, dir) {
+  async outsideAt(id, dir) {
     const o = this.all.get(id)?.meta?.outside;
     if (!o) return false;
     this.meta(id, { outside: { ...o, dir } });
-    // (written down now, whole, before the launcher can run: a Weld that stops after it has gives it back as out)
+    // (written down now, whole, before the launcher can run, after any write of it already on its way, so none older
+    // lands after it: a Weld that stops after it has gives it back as out)
+    await this.chains.get(id);
+    if (!this.all.get(id)?.meta?.outside) return false;
     this.save(id, true);
     return !this.unsaved.has(id);
   }
@@ -741,7 +752,7 @@ export class Threads {
       if (error) this.put(id, { kind: "error", id: `${turn}e`, text: error, at: now() });
       const lastText = [...th.items].reverse().find((x) => x.kind === "text");
       // this agent has now seen everything up to here; a stop also drops what was waiting to be said next
-      this.meta(id, { status: "idle", unread: !run.stopped, error, endedAt: now(), ...(error ? {} : { upto: { ...(th.meta.upto || {}), [agent]: th.items.length } }), ...(run.stopped ? { queue: [] } : {}) });
+      this.meta(id, { status: "idle", unread: !run.stopped, error, endedAt: now(), ...(error ? {} : { upto: { ...(th.meta.upto || {}), [agent]: th.items.length } }), ...(run.stopped ? { queue: th.meta.queue.filter((x) => x.manual) } : {}) });
       this.save(id);
       if (!run.stopped && !th.meta.smith) this.o.onSettled(id, { title: th.meta.title, error, preview: lastText ? clip(lastText.text.replace(/\s+/g, " "), 140) : "" });
       // the turn has wholly finished once what it changed is written: only then is the thread free, and what was said meanwhile goes next
@@ -1112,14 +1123,16 @@ export class Threads {
     if (this.starting.has(id)) {
       this.starting.delete(id);
       this.put(id, { kind: "note", id: `n${now().toString(36)}s`, text: "Stopped", at: now() });
-      this.meta(id, { status: "idle", queue: [] });
+      // (what waits for its own Send stays: it never goes by itself)
+      this.meta(id, { status: "idle", queue: this.get(id).meta.queue.filter((x) => x.manual) });
       for (const turn of [...(this.reserved.get(id)?.keys() ?? [])]) this.finish(id, turn, "stopped");
       return;
     }
     const run = this.running.get(id);
     if (!run) {
       // nothing is running: what was left waiting is dropped, so it cannot start by surprise later
-      if (this.get(id).meta.queue.length) this.meta(id, { queue: [] });
+      const q = this.get(id).meta.queue, keep = q.filter((x) => x.manual);
+      if (keep.length !== q.length) this.meta(id, { queue: keep });
       // a turn still writing what it changed ends as stopped (it has nothing left to stop, but it was asked)
       for (const e of this.reserved.get(id)?.values() ?? []) e.stopped = true;
       return;
