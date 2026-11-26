@@ -66,6 +66,9 @@ const NOTE_MARK = String([...CANVAS_NOTE].reduce((h, c) => (h * 31 + c.charCodeA
 export class Threads {
   /** @param {{ dir: () => string, emit: (id: string, ev: object) => void, which: (cmd: string) => string | null, onSettled: (id: string, info: object) => void }} o */
   constructor(o) {
+    /** Kept agents being let go, each until it has ended, by thread (a new run of its session waits) and all of them. */
+    this.leaving = new Map();
+    this.letGo = new Set();
     this.o = o;
     /** @type {Map<string, any>} */
     this.all = new Map();
@@ -584,7 +587,14 @@ export class Threads {
     // (the folder's picture is waited for only so long; one that comes after the agent has begun would miss what it did
     // first, so it is not used: that turn shows no changes rather than some of them)
     const late = Symbol("late");
-    void Promise.all([Promise.race([snapping, new Promise((r) => setTimeout(() => r(late), 3000))]), board]).then(([taken, got]) => {
+    // (a kept Claude started some other way (its model, mode or folder changed) is let go first, and the new one waits
+    // for it to have finished: with its session saved, what it cost so far, and only then resumed by the new one)
+    if (agent === "claude" && !spec) {
+      const was = this.live.get(id);
+      if (was && !was.dead && was.key !== keyOf(bin, cwd, args)) this.drop(id);
+    }
+    const leaving = this.leaving.get(id) ?? null;
+    void Promise.all([Promise.race([snapping, new Promise((r) => setTimeout(() => r(late), 3000))]), board, leaving]).then(([taken, got]) => {
       const shot = Promise.resolve(taken === late ? null : taken);
       let ctx = got;
       // stopped while waiting: nothing was said to the agent, so there is nothing to stop
@@ -905,8 +915,7 @@ export class Threads {
   }
   /** This thread's kept agent: the one already running if it was started the same way, a new one if not. */
   kept(id, bin, args, cwd, env) {
-    // (which session it resumes is not part of how it was started: it carries the session on itself)
-    const key = JSON.stringify([bin, cwd, args.filter((a, i) => a !== "--resume" && args[i - 1] !== "--resume")]);
+    const key = keyOf(bin, cwd, args);
     let lp = this.live.get(id);
     // (one that has exited but not yet closed its pipes is as good as gone)
     if (lp && (lp.dead || lp.key !== key || lp.proc.exitCode !== null || lp.proc.signalCode !== null || !lp.proc.stdin.writable)) {
@@ -946,6 +955,14 @@ export class Threads {
     const lp = this.live.get(id);
     if (!lp) return;
     this.live.delete(id);
+    // (its ending, waited for by a run of the same thread that would resume its session; ended by now, a quit's)
+    if (!lp.dead) {
+      const ended = new Promise((done) => (lp.proc.exitCode !== null || lp.proc.signalCode !== null ? done() : lp.proc.once("exit", () => done())));
+      const bounded = Promise.race([ended, new Promise((r) => setTimeout(r, 6000))]);
+      this.leaving.set(id, bounded);
+      this.letGo.add(lp);
+      void bounded.then(() => (this.leaving.get(id) === bounded && this.leaving.delete(id), this.letGo.delete(lp)));
+    }
     clearTimeout(lp.idle);
     lp.onEvent = lp.onClose = null;
     if (lp.dead) return;
@@ -1097,6 +1114,8 @@ export class Threads {
       this.save(id);
     }
     for (const id of [...this.live.keys()]) this.drop(id);
+    // (quitting: what is being let go gently is ended now, not left to finish after Weld has gone)
+    for (const lp of this.letGo) signal(lp.proc, "SIGTERM");
     for (const c of this.codexes.values()) c.shutdown();
     // everything not yet written is written, in order, behind whatever writing is already under way (a thread whose last
     // write failed is written whole, whether or not anything new was said)
@@ -1172,6 +1191,8 @@ function resultText(content) {
   return content == null ? "" : JSON.stringify(content);
 }
 
+/** How a kept Claude was started (which session it resumes is not part of it: it carries the session on itself). */
+const keyOf = (bin, cwd, args) => JSON.stringify([bin, cwd, args.filter((a, i) => a !== "--resume" && args[i - 1] !== "--resume")]);
 /** What Claude Code's reported cost covers, for this copy of it: from 2.1.277, the whole session's spend (a run started
  *  with --resume carries what the session cost before into it); before that, only this run's. Asked once per program,
  *  in the background (until it answers, the scope of the versions in use now). */
