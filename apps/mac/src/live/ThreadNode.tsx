@@ -221,7 +221,7 @@ export function ThreadNode({ box, editor, active, far }: NodeProps) {
               <span>Opening in {meta.outside.app}…</span>
             ) : (
               <>
-                <span>Open in {meta.outside.app}. Weld picks it back up when you close it there{meta.queue?.some((q) => q.at >= meta.outside!.since) ? `, and sends what you've said here` : ""}.</span>
+                <span>Open in {meta.outside.app}. When you're done there, close it and bring it back here.</span>
                 <TakeBack id={box.id} app={meta.outside.app} />
               </>
             )}
@@ -436,14 +436,14 @@ const Part = memo(function Part({ text, open }: { text: string; open: (url: stri
   );
 });
 
-/** Take a thread back from its agent's own app; while a run of it is still going there, only on being pressed again. */
+/** Bring a thread back from its agent's own app; while a run of it is still going there, only on being pressed again. */
 function TakeBack({ id, app }: { id: Id; app: string }) {
   const [live, setLive] = useState(false);
   return (
     <>
-      {live && <span className="sub">Still open (or opening) in {app}.</span>}
+      {live && <span className="sub">It's still open in {app}: close it there first.</span>}
       <button type="button" className="live-chip ctl" onMouseDown={(e) => e.preventDefault()} onClick={async () => { const r = await weld.thread.takeBack(id, live); setLive(!!r.live || !!r.pending); }}>
-        {live ? "Take it back anyway" : "Take it back"}
+        {live ? "Bring it back anyway" : "Back in Weld"}
       </button>
     </>
   );
@@ -938,7 +938,7 @@ function Composer({ id, editor, meta, items, running, active, onFolder }: { id: 
               <span className="min-w-0 flex-1 truncate">{q.text}</span>
               {/* waiting behind the turn under way; with none under way (the app was closed meanwhile), sent when asked */}
               {running || meta.outside ? (
-                <span className="shrink-0">{meta.outside ? `when it's back from ${meta.outside.app}` : "next"}</span>
+                <span className="shrink-0">{meta.outside ? `once it's back from ${meta.outside.app}` : "next"}</span>
               ) : (
                 <button type="button" className="live-chip ctl shrink-0 !h-5" onMouseDown={(e) => e.preventDefault()} onClick={() => void weld.thread.sendQueued(id, q.at)}>Send</button>
               )}

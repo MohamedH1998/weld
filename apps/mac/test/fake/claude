@@ -2,12 +2,23 @@
 // A stand-in for Claude Code in its scripted mode (`claude -p --input-format stream-json --output-format stream-json`),
 // for checks: each message it is sent is answered "ok N" (N counts the session's turns), and its result says what the
 // whole session has cost so far, as Claude Code 2.1.332 does: a running total, $0.10 more each turn, carried into a run
-// started with --resume <session> (kept in a file beside the system's temporary files).
+// started with --resume <session> (kept in a file beside the system's temporary files). With FAKE_CLAUDE_VERSION below
+// 2.1.277 it reports, as those versions did, only what this run has cost. Asked something with "bg:<seconds>" in it, it
+// starts a background task ("Build the Acme API") that finishes that many seconds later, then speaks of it unasked, as
+// Claude Code does.
+const version = process.env.FAKE_CLAUDE_VERSION || "2.1.332";
+if (process.argv.includes("--version")) (process.stdout.write(`${version} (Claude Code)\n`), process.exit(0));
+const [va, vb, vc] = version.split(".").map(Number), runScoped = va < 2 || (va === 2 && (vb < 1 || (vb === 1 && vc < 277)));
 const fs = process.getBuiltinModule("node:fs"), os = process.getBuiltinModule("node:os"), path = process.getBuiltinModule("node:path");
 const at = process.argv.indexOf("--resume"), sid = at > 0 ? process.argv[at + 1] : `fake-${process.pid}-${Date.now()}`;
 const file = path.join(os.tmpdir(), `weld-fake-claude-${sid}.json`);
-let n = 0;
-try { n = JSON.parse(fs.readFileSync(file, "utf8")).n || 0; } catch { /* a new session */ }
+// (turns so far, and what the session and this run have cost: a turn costs $0.10, or $0.50 when asked something "big")
+let n = 0, spent = 0, ran = 0;
+try { ({ n = 0, spent = 0 } = JSON.parse(fs.readFileSync(file, "utf8"))); } catch { /* a new session */ }
+// (FAKE_CLAUDE_SAVE=exit: as Claude Code does, what the session cost is saved only when it finishes by itself (its input
+// closed), not when it is killed: a resumed run of one killed starts its total from what was saved before)
+const saveOnExit = process.env.FAKE_CLAUDE_SAVE === "exit";
+let saved = spent;
 // (run as a person would, not scripted by Weld: where it was started, kept beside the session, for checks)
 if (!process.argv.includes("--output-format")) fs.writeFileSync(`${file}.cwd`, process.cwd());
 let buf = "";
@@ -24,11 +35,44 @@ process.stdin.on("data", (d) => {
     try { m = JSON.parse(line); } catch { continue; }
     if (m.type !== "user") continue;
     n += 1;
-    fs.writeFileSync(file, JSON.stringify({ n }));
+    const cost = /big/.test(JSON.stringify(m.message?.content ?? "")) ? 0.5 : 0.1;
+    spent = Math.round((spent + cost) * 100) / 100;
+    ran = Math.round((ran + cost) * 100) / 100;
+    fs.writeFileSync(file, JSON.stringify({ n, spent: saveOnExit ? saved : spent }));
+    // ("child:<file>": it leaves a command running in its own group, with its output elsewhere, and writes its pid there)
+    const child = /child:(\S+?)["\s]/.exec(JSON.stringify(m.message?.content ?? "") + " ");
+    if (child) { const c = process.getBuiltinModule("node:child_process").spawn("/bin/sleep", ["300"], { stdio: "ignore" }); fs.writeFileSync(child[1], String(c.pid)); }
+    // background tasks: "bg:<s>" one that ends with both of Claude Code's events, "bgn:<s>" with only the notification,
+    // "bgu:<s>" with only the update; "bgmany" a long one (20 s) and a dozen short ones (3 s)
+    const said = JSON.stringify(m.message?.content ?? "");
+    const tasks = [];
+    for (const [, how, secs] of said.matchAll(/\b(bg|bgn|bgu):(\d+)/g)) tasks.push({ id: `t${n}${how}`, what: "Build the Acme API", secs: Number(secs), how });
+    if (/bgmany/.test(said)) {
+      tasks.push({ id: `t${n}long`, what: "Long build", secs: 20, how: "bg" });
+      for (let k = 0; k < 12; k++) tasks.push({ id: `t${n}s${k}`, what: `Short check ${k + 1}`, secs: 3, how: "bg" });
+    }
+    out({ type: "system", subtype: "init", session_id: sid, model: "fake", tools: [], slash_commands: [] });
+    for (const task of tasks) {
+      out({ type: "system", subtype: "task_started", task_id: task.id, description: task.what, task_type: "local_bash", is_backgrounded: true, session_id: sid });
+      setTimeout(() => {
+        if (task.how !== "bgn") out({ type: "system", subtype: "task_updated", task_id: task.id, patch: { status: "completed" }, session_id: sid });
+        if (task.how !== "bgu") out({ type: "system", subtype: "task_notification", task_id: task.id, status: "completed", summary: `Background command "${task.what}" completed (exit code 0)`, session_id: sid });
+        if (task.how === "bg" && task.what === "Build the Acme API") {
+          out({ type: "system", subtype: "init", session_id: sid, model: "fake", tools: [], slash_commands: [] });
+          out({ type: "assistant", session_id: sid, message: { id: `m${n}b`, role: "assistant", content: [{ type: "text", text: "the build finished" }] } });
+          out({ type: "result", subtype: "success", session_id: sid, is_error: false, duration_ms: 10, num_turns: 1, result: "the build finished", total_cost_usd: runScoped ? ran : spent });
+        }
+      }, task.secs * 1000);
+    }
     out({ type: "system", subtype: "init", session_id: sid, model: "fake", tools: [], slash_commands: [] });
     out({ type: "assistant", session_id: sid, message: { id: `m${n}`, role: "assistant", content: [{ type: "text", text: `ok ${n}` }] } });
-    out({ type: "result", subtype: "success", session_id: sid, is_error: false, duration_ms: 10, num_turns: 1, result: `ok ${n}`, total_cost_usd: Math.round(n * 0.1 * 100) / 100 });
+    out({ type: "result", subtype: "success", session_id: sid, is_error: false, duration_ms: 10, num_turns: 1, result: `ok ${n}`, total_cost_usd: runScoped ? ran : spent });
   }
 });
+// (FAKE_CLAUDE_SAVE_MS: how long it takes to wind up and save once its input closes, as a real one may)
+process.stdin.on("end", () => setTimeout(() => {
+  if (saveOnExit) fs.writeFileSync(file, JSON.stringify({ n, spent }));
+  process.exit(0);
+}, Number(process.env.FAKE_CLAUDE_SAVE_MS || 0)));
 // (FAKE_CLAUDE_TERM_MS: how long it lingers when told to stop, as a run winding up may)
 process.on("SIGTERM", () => setTimeout(() => process.exit(0), Number(process.env.FAKE_CLAUDE_TERM_MS || 0)));

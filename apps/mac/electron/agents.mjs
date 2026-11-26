@@ -66,6 +66,8 @@ const NOTE_MARK = String([...CANVAS_NOTE].reduce((h, c) => (h * 31 + c.charCodeA
 export class Threads {
   /** @param {{ dir: () => string, emit: (id: string, ev: object) => void, which: (cmd: string) => string | null, onSettled: (id: string, info: object) => void }} o */
   constructor(o) {
+    /** Kept runs let go and not yet ended, by thread. */
+    this.exiting = new Map();
     this.o = o;
     /** @type {Map<string, any>} */
     this.all = new Map();
@@ -137,6 +139,7 @@ export class Threads {
     if (!sid) return { error: "Nothing to continue yet: ask it something first" };
     if (t.meta.outside) return { error: `It is already open in ${t.meta.outside.app}` };
     if (t.meta.status === "running" || this.running.has(id) || this.starting.has(id)) return { error: "It is working: continue it once it has finished" };
+    if ((this.live.get(id)?.tasks ?? 0) > 0) return { error: "It has work going on in the background: continue it once that has finished" };
     const app = agent === "claude" ? "Claude Code" : "Codex";
     // (held from now, and "on its way" until Weld's own run of it has ended: nothing of Weld's starts it, and it can't be
     // taken back halfway)
@@ -147,7 +150,8 @@ export class Threads {
     if (codex) (clearTimeout(this.codexIdle.get(id)), codex.shutdown(), this.codexes.delete(id));
     const alive = (p) => !!p && p.exitCode === null && p.signalCode === null;
     const ended = (p) => (!alive(p) ? Promise.resolve() : new Promise((done) => p.once("exit", () => done())));
-    const both = () => Promise.all([ended(proc), ended(cproc)]);
+    // (and any run of it Weld let go a moment ago, still finishing)
+    const both = () => Promise.all([ended(proc), ended(cproc), this.exiting.get(id) ?? null]);
     await Promise.race([both(), new Promise((r) => setTimeout(r, 7000))]);
     // (one that won't stop is ended, and waited for a little longer)
     if ([proc, cproc].some(alive)) {
@@ -162,20 +166,19 @@ export class Threads {
     this.put(id, { kind: "note", id: `n${now().toString(36)}o`, text: `Continued in ${app}`, at: now() });
     return { agent, app, sid, cwd: t.meta.cwd || os.homedir() };
   }
-  /** Back from its agent's own app: Weld runs it again, and what was said here meanwhile goes first (unless it came back
-   *  across a restart of Weld: then, as with anything left waiting by a restart, only when the person says). */
-  takeBack(id, { send = true, note = "" } = {}) {
+  /** Where the launcher for a thread out in its agent's own app is (kept with the thread, so it can be claimed later). */
+  outsideAt(id, dir) {
+    const o = this.all.get(id)?.meta?.outside;
+    if (o) this.meta(id, { outside: { ...o, dir } });
+  }
+  /** Back from its agent's own app, when the person brings it back: Weld runs it again when asked. What was said while it
+   *  was out waits, each to be sent when they say (nothing is sent by itself). */
+  takeBack(id, { note = "" } = {}) {
     const t = this.all.get(id);
     if (!t?.meta?.outside) return;
-    const { app, since } = t.meta.outside;
+    const { app } = t.meta.outside;
     this.meta(id, { outside: null });
     this.put(id, { kind: "note", id: `n${now().toString(36)}b`, text: note || `Back from ${app}`, at: now() });
-    // (only what was said while it was out goes by itself; what was waiting from before still waits for the person)
-    const first = t.meta.queue[0];
-    if (send && !this.gone.has(id) && first && first.at >= since && t.meta.status !== "running") {
-      this.meta(id, { queue: t.meta.queue.slice(1) });
-      this.start(id, first.text, extraOf(first));
-    }
   }
   hold(id, turn, mode) {
     let m = this.reserved.get(id);
@@ -287,6 +290,8 @@ export class Threads {
     t.meta.asking = false;
     // what a thread had running in the background stopped with the app
     if (t.meta.services) t.meta.services = t.meta.services.map((s) => ({ ...s, alive: false }));
+    // (one Weld stopped while it was handing out: it never got out, and is Weld's)
+    if (t.meta.outside?.pending) t.meta.outside = null;
     for (const it of t.items) if (it.kind === "ask" && it.status === "waiting") it.status = "stopped";
     this.all.set(id, t);
     return t;
@@ -992,6 +997,12 @@ export class Threads {
     const lp = this.live.get(id);
     if (!lp) return;
     this.live.delete(id);
+    // (its ending, waited for by a hand-out of the thread to its agent's own app: two runs of a session must not overlap)
+    if (!lp.dead) {
+      const p = Promise.race([new Promise((done) => (lp.proc.exitCode !== null || lp.proc.signalCode !== null ? done() : lp.proc.once("exit", () => done()))), new Promise((r) => setTimeout(r, 6000))]);
+      this.exiting.set(id, p);
+      void p.then(() => this.exiting.get(id) === p && this.exiting.delete(id));
+    }
     clearTimeout(lp.idle);
     lp.onEvent = lp.onClose = null;
     if (lp.dead) return;

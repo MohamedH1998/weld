@@ -45,7 +45,7 @@ export interface Item {
 export interface Meta {
   agent: Agent;
   /** Its session open in its agent's own app (Weld holds what is said here until it comes back). */
-  outside?: { app: string; sid: string; since: number; pending?: boolean } | null;
+  outside?: { app: string; sid: string; since: number; pending?: boolean; dir?: string } | null;
   mode: Mode;
   /** The model asked for, and the agent it was asked of (another agent goes with its own default). */
   model?: string;
