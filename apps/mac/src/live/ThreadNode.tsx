@@ -1,9 +1,9 @@
 // A conversation with a coding agent, on the board. The record is this
 // app's own (see electron/agents.mjs), so which lab's agent answers is a
 // choice made per message, not a property of the thread.
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { ArrowsOutSimple, At, CaretDown, CaretRight, ChatCircle, Check, Folder, FrameCorners, GitFork, Globe, Graph, KeyReturn, Minus, NoteBlank, Shapes, Stop, TerminalWindow, X , Image as ImageIcon } from "@phosphor-icons/react";
-import Markdown from "react-markdown";
+import { createContext, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { ArrowsOutSimple, At, CaretDown, CaretRight, ChatCircle, Check, Copy, Folder, FrameCorners, GitFork, Globe, Graph, KeyReturn, Minus, NoteBlank, Shapes, Stop, TerminalWindow, X , Image as ImageIcon } from "@phosphor-icons/react";
+import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { AgentLogo } from "./AgentLogo";
 import { defaultCwd, folderName, isScratch, weld, remember, settings, tilde, agentList, agentName, agentOf, chosenAgent, chosenModel } from "./bridge";
@@ -374,15 +374,22 @@ const Transcript = memo(function Transcript({ items, meta, running, active, edit
 /** What was said, cut where one block ends and the next begins, so a piece still being written only re-reads its own last block. */
 function partsOf(text: string): string[] {
   const out: string[] = [];
-  let cur: string[] = [], fence = false, blank = false;
-  for (const line of text.split("\n")) {
-    const f = /^\s*(```|~~~)/.test(line);
+  // (inside a fenced block until a fence of the same mark, at least as long, closes it: one inside it is its words; a
+  // closing fence stands no more than three spaces further in than its opening one, as in a list item: one indented
+  // further is an example inside the block)
+  let cur: string[] = [], fence = "", at = 0, blank = false;
+  // (lines ended either way, \n or \r\n, are the same lines)
+  for (const line of text.split(/\r?\n/)) {
+    // (a fence may stand indented, as one inside a list item does)
+    const m = /^(\s*)(`{3,}|~{3,})(.*)$/.exec(line);
+    const opens = !fence && !!m, closes = !!fence && !!m && m[2]![0] === fence[0] && m[2]!.length >= fence.length && !m[3]!.trim() && m[1]!.length - at <= 3;
     // a new block starts after an empty line, at a line that cannot belong to what came before (not indented, not a list or quote going on)
     if (!fence && blank && line.trim() && !/^(\s|[-*+>|]|\d+[.)])/.test(line) && cur.length) {
       out.push(cur.join("\n"));
       cur = [];
     }
-    if (f) fence = !fence;
+    if (opens) (fence = m![2]!), (at = m![1]!.length);
+    else if (closes) fence = "";
     blank = !fence && !line.trim();
     cur.push(line);
   }
@@ -394,15 +401,28 @@ const Said = memo(function Said({ item, open }: { item: Item; open: (url: string
   const parts = useMemo(() => partsOf(item.text ?? ""), [item.text]);
   return (
     <div className={`prose-live ${item.streaming ? "thread-caret" : ""}`}>
-      {parts.map((p, i) => <Part key={i} text={p} open={open} />)}
+      {parts.map((p, i) => <Part key={i} text={p} open={open} arriving={!!item.streaming && i === parts.length - 1} />)}
     </div>
   );
 });
-const Part = memo(function Part({ text, open }: { text: string; open: (url: string) => void }) {
-  return (
-      <Markdown
-        remarkPlugins={PLUGINS}
-        components={{
+/** The words the code blocks being shown come from, and whether they are still arriving: a block is ready to copy once
+ *  its closing fence has arrived (or the answer is done), never while it is half written. */
+const CodeSource = createContext<{ text: string; arriving: boolean }>({ text: "", arriving: false });
+/** (one kind of thing for a block of code, made once: made again with each word that arrives, it would be a new block
+ *  each time, and lose its focus, its scroll and its "Copied") */
+const PreBlock = ({ children, node }: { children?: React.ReactNode; node?: { position?: { start: { offset?: number; column?: number }; end: { offset?: number } } } }) => {
+  const { text, arriving } = useContext(CodeSource);
+  const at = node?.position, src = at && at.start.offset !== undefined && at.end.offset !== undefined ? text.slice(at.start.offset, at.end.offset) : "";
+  // (how far in its opening fence stands: a closing one stands no more than three spaces further in)
+  const indent = Math.max(0, (at?.start.column ?? 1) - 1);
+  // (closed: a line after its first of the same fence, at least as long, and nothing else; or an indented block, which
+  // has no fence to wait for)
+  const open = /^\s*(`{3,}|~{3,})/.exec(src), fence = open?.[1];
+  const closed = !fence || src.split(/\r?\n/).slice(1).some((l) => { const m = /^(\s*)(`{3,}|~{3,})\s*$/.exec(l); return !!m && m[2]![0] === fence[0] && m[2]!.length >= fence.length && m[1]!.length - indent <= 3; });
+  return <CodeBlock ready={!arriving || closed}>{children}</CodeBlock>;
+};
+const Part = memo(function Part({ text, open, arriving }: { text: string; open: (url: string) => void; arriving?: boolean }) {
+  const components = useMemo<Components>(() => ({
           a: ({ href, children }) => (
             <a
               href={href}
@@ -414,6 +434,8 @@ const Part = memo(function Part({ text, open }: { text: string; open: (url: stri
               {children}
             </a>
           ),
+          // a block of code (a command to run, a query, a file): copied whole with the button beside it
+          pre: PreBlock,
           // (a picture an agent names is not fetched by itself: what the window loads would reach the network for an
           // agent that may not; it is a link, opened beside the thread when pressed)
           img: ({ src, alt }) => (
@@ -427,12 +449,64 @@ const Part = memo(function Part({ text, open }: { text: string; open: (url: stri
               {alt || "picture"}
             </a>
           ),
-        }}
-      >
+  }), [open]);
+  return (
+    <CodeSource.Provider value={{ text, arriving: !!arriving }}>
+      <Markdown remarkPlugins={PLUGINS} components={components}>
         {text}
       </Markdown>
+    </CodeSource.Provider>
   );
 });
+
+/** A block of code in what an agent said, with a button beside it that copies all of it (as it reads), and says so
+ *  for a moment: "Copied" only once it is on the clipboard, "Couldn't copy" if it could not be put there. */
+function CodeBlock({ children, ready }: { children: React.ReactNode; ready: boolean }) {
+  const pre = useRef<HTMLPreElement>(null);
+  const [said, setSaid] = useState<null | "copied" | "failed">(null);
+  const timer = useRef(0);
+  useEffect(() => () => window.clearTimeout(timer.current), []);
+  const copy = async () => {
+    const text = (pre.current?.querySelector("code") ?? pre.current)?.textContent?.replace(/\n$/, "") ?? "";
+    let ok = false;
+    try {
+      await navigator.clipboard.writeText(text);
+      ok = true;
+    } catch {
+      // (the page's own way, if the clipboard is not to be had that way; the keys go back where they were)
+      const back = document.activeElement as HTMLElement | null;
+      const t = document.createElement("textarea");
+      t.value = text;
+      t.setAttribute("readonly", "");
+      t.style.position = "fixed";
+      t.style.opacity = "0";
+      document.body.appendChild(t);
+      t.select();
+      try {
+        ok = document.execCommand("copy");
+      } catch {
+        ok = false;
+      }
+      t.remove();
+      back?.focus?.({ preventScroll: true });
+    }
+    setSaid(ok ? "copied" : "failed");
+    window.clearTimeout(timer.current);
+    timer.current = window.setTimeout(() => setSaid(null), 1400);
+  };
+  return (
+    <div className="code-block">
+      <pre ref={pre}>{children}</pre>
+      {ready && (
+        <button type="button" className="code-copy ctl" aria-label="Copy code" title={said === "copied" ? "Copied" : said === "failed" ? "Couldn't copy" : "Copy"} data-said={said ?? undefined} onMouseDown={(e) => e.preventDefault()} onClick={() => void copy()}>
+          {said === "copied" ? <Check size={12} weight="bold" /> : said === "failed" ? <X size={12} weight="bold" /> : <Copy size={12} />}
+        </button>
+      )}
+      {/* (said aloud to a screen reader, quietly) */}
+      <span role="status" className="sr-only">{said === "copied" ? "Copied" : said === "failed" ? "Couldn't copy" : ""}</span>
+    </div>
+  );
+}
 
 /** What an agent is doing just now, in a line: the step under way, or the last thing it said. */
 export function doingNow(items: Item[], running: boolean, cwd?: string): string {
