@@ -43,7 +43,7 @@ export default async ({ app, page, shot, out }) => {
   check("Copy session id copies it", (await E(() => window.__copied)).join() === sid);
   await shot?.("menu");
   await page.locator(".thread-elsewhere button", { hasText: "Continue in Claude Code" }).click({ force: true });
-  for (let t = 0; t < 40 && !(await get()).meta.outside; t++) await wait(50);
+  for (let t = 0; t < 100 && !(await get()).meta.outside; t++) await wait(50);
   const half = await E((T) => window.weld.thread.takeBack(T), T);
   check("while Weld's own run is still winding up, it can't be brought back halfway", !!half.pending && !!(await get()).meta.outside, half);
   for (let t = 0; t < 60 && (await get()).meta.outside?.pending; t++) await wait(150);

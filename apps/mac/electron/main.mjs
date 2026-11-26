@@ -1817,7 +1817,7 @@ function wire() {
     const r = await threads.handOut(id);
     if (r.error) return r;
     const bin = which(r.agent);
-    if (!bin) return (threads.takeBack(id, { note: `${r.app} wasn't found on this Mac` }), { error: `${r.app} wasn't found on this Mac` });
+    if (!bin) return (threads.takeBack(id, { note: `${r.app} wasn't found on this Mac`, key: r.key }), { error: `${r.app} wasn't found on this Mac` });
     // The launcher, in a folder of its own (new, this account's only): it starts the agent only once it has claimed the
     // folder (mkdir, which one only can), so it runs once; bringing the thread back claims it first, so a Terminal that
     // opens late starts nothing.
@@ -1835,7 +1835,7 @@ function wire() {
         "",
       ].join("\n"), { mode: 0o700, flag: "wx" });
       // (kept with the thread itself, written before the launcher can run: a Weld opened again can still claim it)
-      if (!(await threads.outsideAt(id, dir))) throw new Error("couldn't write it down");
+      if (!(await threads.outsideAt(id, dir, r.key))) throw new Error("couldn't write it down");
       if (TEST) return { app: r.app, sid: r.sid, script: file };
       const failed = await shell.openPath(file);
       if (failed) throw new Error(failed);
@@ -1846,7 +1846,7 @@ function wire() {
       } catch {
         /* gone */
       }
-      threads.takeBack(id, { note: `Couldn't open it in ${r.app}` });
+      threads.takeBack(id, { note: `Couldn't open it in ${r.app}`, key: r.key });
       return { error: `Couldn't open it in ${r.app}: ${e?.message || e}` };
     }
   });
@@ -1867,12 +1867,14 @@ function wire() {
     }
     // (the launcher itself, still starting it (its folder in its command), is as good as running)
     if (!unstarted && !force && (await runningOutside([out.sid, out.dir].filter(Boolean))) !== false) return { live: true };
+    // (still the hand-out this was about: one made while it looked is left alone)
+    if (threads.get(id)?.meta?.outside?.key !== out.key) return {};
     try {
       if (out.dir) rmSync(out.dir, { recursive: true, force: true });
     } catch {
       /* gone */
     }
-    threads.takeBack(id);
+    threads.takeBack(id, { key: out.key });
     return {};
   });
   ipcMain.handle("thread:forget", async (_e, id) => (typeof id === "string" && id.startsWith("smith") ? threads.forget(id) : undefined));

@@ -4,6 +4,7 @@
 // command-line agent, signed in as the person, and its events are
 // turned into that one shape as they arrive.
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { Changes } from "./changes.mjs";
 import { CodexServer } from "./codex.mjs";
 import { AcpAgent } from "./acpclient.mjs";
@@ -143,7 +144,9 @@ export class Threads {
     const app = agent === "claude" ? "Claude Code" : "Codex";
     // (held from now, and "on its way" until Weld's own run of it has ended: nothing of Weld's starts it, and it can't be
     // taken back halfway)
-    this.meta(id, { outside: { app, sid, since: now(), pending: true } });
+    // (each hand-out its own: what comes back late from an earlier one never undoes a later one)
+    const key = randomUUID();
+    this.meta(id, { outside: { app, sid, since: now(), pending: true, key } });
     const lp = this.live.get(id), proc = lp && !lp.dead ? lp.proc : null;
     const codex = agent === "codex" ? this.codexes.get(id) : null, cproc = codex?.proc ?? null;
     this.drop(id);
@@ -161,12 +164,24 @@ export class Threads {
       await Promise.race([both(), new Promise((r) => setTimeout(r, 2000))]);
     }
     if ([proc, cproc, ...others()].some(alive)) {
-      this.meta(id, { outside: null });
+      if (this.get(id).meta.outside?.key === key) this.meta(id, { outside: null });
       return { error: "Weld's own run of it did not stop: try again in a moment" };
     }
-    this.meta(id, { outside: { app, sid, since: this.get(id).meta.outside?.since ?? now() } });
+    if (this.get(id).meta.outside?.key !== key) return { error: "It was brought back meanwhile" };
+    this.meta(id, { outside: { app, sid, since: this.get(id).meta.outside?.since ?? now(), key } });
     this.put(id, { kind: "note", id: `n${now().toString(36)}o`, text: `Continued in ${app}`, at: now() });
-    return { agent, app, sid, cwd: t.meta.cwd || os.homedir() };
+    return { agent, app, sid, key, cwd: t.meta.cwd || os.homedir() };
+  }
+  /** A process of a thread's on its way out, known until it has gone (a hand-out of the thread waits for it). */
+  leavingProc(id, p) {
+    if (!p || p.exitCode !== null || p.signalCode !== null) return;
+    if (!this.retired) this.retired = new Map();
+    const set = this.retired.get(id) ?? new Set();
+    this.retired.set(id, set.add(p));
+    const done = new Promise((r) => p.once("exit", () => (set.delete(p), set.size || this.retired.get(id) !== set || this.retired.delete(id), r())));
+    const was = this.exiting.get(id), all = was ? Promise.all([was, done]) : done;
+    this.exiting.set(id, all);
+    void all.then(() => this.exiting.get(id) === all && this.exiting.delete(id));
   }
   /** Let go of a thread's Codex server: shut down, and its ending kept (a hand-out of the thread waits for it). */
   retireCodex(id) {
@@ -188,22 +203,23 @@ export class Threads {
     c?.shutdown();
   }
   /** Where the launcher for a thread out in its agent's own app is (kept with the thread, so it can be claimed later). */
-  async outsideAt(id, dir) {
+  async outsideAt(id, dir, key) {
     const o = this.all.get(id)?.meta?.outside;
-    if (!o) return false;
+    if (!o || o.key !== key) return false;
     this.meta(id, { outside: { ...o, dir } });
     // (written down now, whole, before the launcher can run, after any write of it already on its way, so none older
     // lands after it: a Weld that stops after it has gives it back as out)
     await this.chains.get(id);
-    if (!this.all.get(id)?.meta?.outside) return false;
+    if (this.all.get(id)?.meta?.outside?.key !== key) return false;
     this.save(id, true);
     return !this.unsaved.has(id);
   }
   /** Back from its agent's own app, when the person brings it back: Weld runs it again when asked. What was said while it
    *  was out waits, each to be sent when they say (nothing is sent by itself). */
-  takeBack(id, { note = "" } = {}) {
+  takeBack(id, { note = "", key } = {}) {
     const t = this.all.get(id);
-    if (!t?.meta?.outside) return;
+    // (only the hand-out it is about: one made since stays out)
+    if (!t?.meta?.outside || (key && t.meta.outside.key !== key)) return;
     const { app } = t.meta.outside;
     this.meta(id, { outside: null });
     this.put(id, { kind: "note", id: `n${now().toString(36)}b`, text: note || `Back from ${app}`, at: now() });
@@ -1161,6 +1177,8 @@ export class Threads {
       this.live.delete(id);
       clearTimeout(lp.idle);
     }
+    // (known until it has gone: a hand-out of the thread waits for it, however its turn's end is reported first)
+    this.leavingProc(id, run.proc);
     signal(run.proc, "SIGINT");
     // asked again, more firmly, for as long as it has not gone (once it has, its number may be someone else's)
     const there = () => run.proc.exitCode === null && run.proc.signalCode === null;
