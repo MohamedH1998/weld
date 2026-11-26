@@ -868,10 +868,17 @@ export class Threads {
 
   // ── the agents' own processes ─────────────────────────────────────
   /** What a session's total is is no longer known: the next one reported is counted from, not added. */
-  costUnsure(id, sid) {
+  costUnsure(id, sid, from, now = false) {
     const t = this.all.get(id);
     if (!t || t.meta.costs?.[sid] === undefined || t.meta.costs[sid] === null) return;
-    this.meta(id, { costs: { ...t.meta.costs, [sid]: null } });
+    // (a run of it since, which has counted from its own total already, knows better)
+    const since = this.live.get(id);
+    if (from && since && since !== from && since.sid === sid && since.costSeen !== undefined) return;
+    if (now) {
+      // (quitting: written at once, whatever else is or isn't being written)
+      t.meta.costs = { ...t.meta.costs, [sid]: null };
+      this.save(id, true);
+    } else this.meta(id, { costs: { ...t.meta.costs, [sid]: null } });
   }
   /** Start an agent's command line, in a group of its own (so stopping it stops what it started too), and read its events as they come. */
   launch(bin, args, cwd, env) {
@@ -916,12 +923,13 @@ export class Threads {
       lp.err += String(e?.message || e);
       gone(1);
     });
-    proc.on("close", (code, sig) => {
-      // (one that didn't end cleanly may not have saved what its session has cost: what was counted is kept, and the next
-      // run of the session counts from its first total, rather than against one that may be out of date)
-      if ((sig || code) && lp.thread && lp.sid) this.costUnsure(lp.thread, lp.sid);
-      gone(code ?? 1);
+    // (one that didn't end cleanly may not have saved what its session has cost: what was counted is kept, and the next
+    // run of the session counts from its first total, rather than against one that may be out of date; said as soon as it
+    // has exited, before anything it left holding its output lets it close, so a run resuming it can't count first)
+    proc.on("exit", (code, sig) => {
+      if ((sig || code) && lp.thread && lp.sid) this.costUnsure(lp.thread, lp.sid, lp);
     });
+    proc.on("close", (code) => gone(code ?? 1));
     return lp;
   }
   /** This thread's kept agent: the one already running if it was started the same way, a new one if not. */
@@ -1113,6 +1121,8 @@ export class Threads {
     }
     // a kept agent that is being stopped is not handed the next turn: that one gets an agent of its own
     const lp = this.live.get(id);
+    // (stopped, it may not save what its session has cost: the next run counts from its own first total)
+    if (lp?.proc === run.proc && lp.thread && lp.sid) this.costUnsure(lp.thread, lp.sid);
     if (lp?.proc === run.proc) {
       this.live.delete(id);
       clearTimeout(lp.idle);
@@ -1136,6 +1146,9 @@ export class Threads {
       signal(run.proc, "SIGKILL");
       const th = this.all.get(id);
       if (th) th.meta.status = "running";
+      // (killed, it hasn't saved what its session has cost)
+      const klp = this.live.get(id);
+      if (th && klp?.sid && th.meta.costs?.[klp.sid] != null) th.meta.costs = { ...th.meta.costs, [klp.sid]: null };
       this.save(id);
     }
     for (const id of [...this.live.keys()]) this.drop(id);
@@ -1144,7 +1157,13 @@ export class Threads {
     const going = [...this.letGo];
     const finished = Promise.all(going.map((lp) => (lp.proc.exitCode !== null || lp.proc.signalCode !== null ? null : new Promise((done) => lp.proc.once("exit", done)))));
     const ended = Promise.race([finished, new Promise((r) => setTimeout(r, 2000))]).then(() => {
-      for (const lp of going) (signal(lp.proc, "SIGTERM"), signal(lp.proc, "SIGKILL"));
+      for (const lp of going) {
+        const alive = lp.proc.exitCode === null && lp.proc.signalCode === null;
+        // (one ended here hasn't saved what its session has cost: written down before it is)
+        if (alive && lp.thread && lp.sid) this.costUnsure(lp.thread, lp.sid, lp, true);
+        signal(lp.proc, "SIGTERM");
+        signal(lp.proc, "SIGKILL");
+      }
     });
     for (const c of this.codexes.values()) c.shutdown();
     // everything not yet written is written, in order, behind whatever writing is already under way (a thread whose last
