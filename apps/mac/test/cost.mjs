@@ -65,4 +65,25 @@ export default async ({ app, page }) => {
   for (let t = 0; t < 40 && alive(pid); t++) await wait(250);
   check("let go (its mode changed), what it left running in its group ends with it", !alive(pid), pid);
   try { process.kill(pid, "SIGKILL"); } catch {}
+
+  // killed before it could save its total (as a force-quit or a crash would), then resumed, and resumed again after a
+  // clean finish: at most the one turn after the kill goes uncounted; nothing counted is counted again
+  if (process.env.FAKE_CLAUDE_SAVE === "exit") {
+    const { execFileSync } = await import("node:child_process");
+    let k = said().length;
+    const turn = async (text) => { await E(([T, text]) => window.weld.thread.send(T, { text }), [T, text]); th = await done(++k); };
+    th = await done(k);
+    const c0 = th.meta.cost ?? 0, sid = th.meta.sessions?.claude;
+    await turn("one before the kill");
+    const pids = execFileSync("/usr/bin/pgrep", ["-f", `resume ${sid}`], { encoding: "utf8" }).trim().split(/\s+/).map(Number).filter(Boolean);
+    for (const p of pids) try { process.kill(p, "SIGKILL"); } catch {}
+    await wait(800);
+    await turn("one after it");
+    await turn("and another");
+    await E((T) => window.weld.thread.set(T, { mode: "edits" }), T);
+    await turn("after a clean finish");
+    await turn("and one more");
+    const got = Math.round(((th.meta.cost ?? 0) - c0) * 100) / 100;
+    check("killed before saving, then resumed twice: five $0.10 turns read $0.40 (the one after the kill uncounted), not more", pids.length > 0 && got === 0.4, { pids, got });
+  }
 };

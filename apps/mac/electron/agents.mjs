@@ -867,6 +867,12 @@ export class Threads {
   }
 
   // ── the agents' own processes ─────────────────────────────────────
+  /** What a session's total is is no longer known: the next one reported is counted from, not added. */
+  costUnsure(id, sid) {
+    const t = this.all.get(id);
+    if (!t || t.meta.costs?.[sid] === undefined || t.meta.costs[sid] === null) return;
+    this.meta(id, { costs: { ...t.meta.costs, [sid]: null } });
+  }
   /** Start an agent's command line, in a group of its own (so stopping it stops what it started too), and read its events as they come. */
   launch(bin, args, cwd, env) {
     const proc = spawn(bin, args, { cwd, env, stdio: ["pipe", "pipe", "pipe"], detached: true });
@@ -910,7 +916,12 @@ export class Threads {
       lp.err += String(e?.message || e);
       gone(1);
     });
-    proc.on("close", (code) => gone(code ?? 1));
+    proc.on("close", (code, sig) => {
+      // (one that didn't end cleanly may not have saved what its session has cost: what was counted is kept, and the next
+      // run of the session counts from its first total, rather than against one that may be out of date)
+      if ((sig || code) && lp.thread && lp.sid) this.costUnsure(lp.thread, lp.sid);
+      gone(code ?? 1);
+    });
     return lp;
   }
   /** This thread's kept agent: the one already running if it was started the same way, a new one if not. */
@@ -1323,7 +1334,7 @@ function claudeReader(th, id, turn, lp) {
           else if (known === null) added = 0;
           else if ((lp?.scope ?? "session") === "session" && total >= (known ?? 0)) added = total - (known ?? 0);
           else added = total;
-          if (lp) lp.costSeen = total;
+          if (lp) (lp.costSeen = total, lp.thread = id, lp.sid = sid);
           costs[sid] = known === null ? total : (known ?? 0) + added;
           th.meta(id, { costs, cost: (t.meta.cost || 0) + added, lastMs: ev.duration_ms });
         } else th.meta(id, { lastMs: ev.duration_ms });
