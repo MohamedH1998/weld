@@ -51,6 +51,8 @@ export interface Live {
   hue?: number;
   /** A thread folded down to its title: the height it had open, to go back to. */
   tall?: number;
+  /** When the person closed a thread's card, sending it back to the bar (ms): the bar shows it there from then on. */
+  closed?: number;
 }
 /** How a line is drawn. Absent means solid. */
 export type Line = "dashed" | "dotted";

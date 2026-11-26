@@ -177,10 +177,11 @@ export const Bar = memo(function Bar({ editor, dark }: { editor: Editor; dark: b
     setText("");
   };
 
-  // the threads kept here that have something to say: at work, waiting for the person, or done and not yet read
-  const live = away
-    .map((b) => ({ b, t: threads.get(b.id) }))
-    .filter(({ b, t }) => openings.has(b.id) || (t && (t.meta.status === "running" || t.meta.asking || t.meta.unread || t.meta.error)));
+  // the threads kept here that have something to say (at work, waiting for the person, or done and not yet read), then
+  // those the person closed, sent back here by its X, the latest first: a thread closed is in the bar, never just gone
+  const saying = ({ b, t }: { b: Box; t: ReturnType<typeof threads.get> }) => openings.has(b.id) || !!(t && (t.meta.status === "running" || t.meta.asking || t.meta.unread || t.meta.error));
+  const all = away.map((b) => ({ b, t: threads.get(b.id) }));
+  const live = [...all.filter(saying), ...all.filter((x) => !saying(x) && x.b.live?.closed).sort((x, y) => (y.b.live!.closed ?? 0) - (x.b.live!.closed ?? 0))];
   const empty = store.doc.order.length === 0 && away.length === 0 && smiths.size === 0 && store.tool === "select" && !store.busy;
   const open = reading ? awayBox(editor, reading) : undefined;
   // (with no agent yet: the card offering them, on a board that is empty but for the terminals it opened; elsewhere, Settings)
