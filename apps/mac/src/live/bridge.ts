@@ -44,6 +44,8 @@ export interface Item {
 }
 export interface Meta {
   agent: Agent;
+  /** Its session open in its agent's own app (Weld holds what is said here until it comes back). */
+  outside?: { app: string; sid: string; since: number; pending?: boolean; dir?: string } | null;
   /** Work its agent has going on in the background after its turn (a command, a helper agent), while it runs. */
   background?: { id: string; what: string; kind?: string; since: number }[];
   /** How many more than those shown (the newest dozen) it has going. */
@@ -190,6 +192,8 @@ export interface Weld {
   thread: {
     get: (id: string) => Promise<Thread>;
     send: (id: string, msg: { text: string; keys?: string[]; cwd?: string }) => Promise<void>;
+    handOut: (id: string) => Promise<{ error?: string; app?: string; sid?: string; script?: string }>;
+    takeBack: (id: string, force?: boolean) => Promise<{ live?: boolean; pending?: boolean }>;
     stop: (id: string) => Promise<void>;
     warm: (id: string) => void;
     set: (id: string, change: Partial<Pick<Meta, "agent" | "mode" | "cwd" | "title" | "smith">>) => Promise<Meta>;
