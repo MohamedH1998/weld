@@ -15,7 +15,8 @@ export default async ({ app, page, shot }) => {
   await page.waitForFunction(() => !!window.__editor);
   await wait(1200);
   // a shape on the board, selected: copying words must not copy it instead
-  await E(() => { const st = window.__editor.store; st.run(() => st.put({ id: "r1", kind: "rect", x: 0, y: 0, w: 200, h: 100, text: "Acme API", tone: "ink", fill: "tint" })); st.select(["r1"]); st.emit(); });
+  // (in the top left of the window, clear of the conversation that will rise over the middle)
+  await E(() => { const e = window.__editor, st = e.store, w = e.world({ x: 40, y: 80 }); st.run(() => st.put({ id: "r1", kind: "rect", x: w.x, y: w.y, w: 160 / st.cam.z, h: 80 / st.cam.z, text: "Acme API", tone: "ink", fill: "tint" })); st.select(["r1"]); st.emit(); });
   // a long answer, longer than the reader is tall
   // (the mock speaks one word given to it, its underscores read as spaces)
   const words = Array.from({ length: 30 }, (_, i) => `Step ${i + 1}: the checkout service calls the payments API and waits for its answer.`).join(" ").replace(/ /g, "_");
@@ -64,13 +65,14 @@ export default async ({ app, page, shot }) => {
   check("dragging across the words selects them", picked.length > 10, picked);
   await shot?.("reader-selected");
   // copying them: the board's own copy stands aside (the event goes to the page's default)
-  const taken = await E(() => { const at = window.getSelection().anchorNode?.parentElement ?? document.body; const ev = new ClipboardEvent("copy", { bubbles: true, cancelable: true, clipboardData: new DataTransfer() }); at.dispatchEvent(ev); return { prevented: ev.defaultPrevented, data: ev.clipboardData.getData("text/plain") }; });
-  check("copying them copies the words, not the selected shape", !taken.prevented && taken.data === "", taken);
+  const taken = await E(() => { const at = window.getSelection().getRangeAt(0).startContainer.parentElement; const ev = new ClipboardEvent("copy", { bubbles: true, cancelable: true, clipboardData: new DataTransfer() }); at.dispatchEvent(ev); return { prevented: ev.defaultPrevented, data: ev.clipboardData.getData("text/plain") }; });
+  check("the board leaves copying the words to the page (it doesn't take them for the selected shape)", !taken.prevented && taken.data === "", taken);
   check("…and the shape is still selected on the board", (await E(() => [...window.__editor.store.sel].join())) === "r1");
   // a press on the board's shape lets go of the words: copy is the shape's again
   const at = await E(() => { const e = window.__editor, x = e.store.doc.shapes.r1, c = e.store.cam; return { x: (x.x + x.w / 2 - c.x) * c.z, y: (x.y + 10 - c.y) * c.z }; });
-  await page.keyboard.press("Escape");
-  await wait(400);
+  // (the conversation still open, its words still selected, right up to the press)
+  const still = await E(() => ({ open: !!document.querySelector(".ask-reader"), words: String(window.getSelection()).length }));
+  check("the words are still selected, the conversation still open, before the press", still.open && still.words > 10, still);
   await page.mouse.click(at.x, at.y);
   await wait(300);
   const after2 = await E(() => ({ words: String(window.getSelection()), sel: [...window.__editor.store.sel].join() }));

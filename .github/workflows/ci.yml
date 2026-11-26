@@ -34,6 +34,8 @@ jobs:
       - run: pnpm build
       # the app itself, opened and used, on the dev build (no agent credentials: a mock agent stands in)
       - run: pnpm smoke
+      # the conversation risen from the bar: scrolled, its words selected and copied
+      - run: WELD_SEED=0 node scripts/shot.mjs out/reader test/reader.mjs
 
   web:
     runs-on: ubuntu-latest
