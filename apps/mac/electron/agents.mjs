@@ -3,7 +3,7 @@
 // whichever lab's agent produced it. Each turn runs the lab's own
 // command-line agent, signed in as the person, and its events are
 // turned into that one shape as they arrive.
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { Changes } from "./changes.mjs";
 import { CodexServer } from "./codex.mjs";
 import { AcpAgent } from "./acpclient.mjs";
@@ -223,7 +223,7 @@ export class Threads {
     t.meta.workspace = placeOf(t.meta.cwd);
     // (a cost kept from before costs were counted by session was counted wrong, many turns over: it is not shown, and
     // counting starts again from here)
-    if (t.meta.cost !== undefined && !t.meta.costs) (delete t.meta.cost, (t.meta.costs = {}));
+    if (t.meta.cost !== undefined && !t.meta.costs) (delete t.meta.cost, (t.meta.costs = t.meta.sessions?.claude ? { [t.meta.sessions.claude]: null } : {}));
     // nothing survives a restart mid-turn: what was running is now stopped
     if (t.meta.status === "running") {
       t.meta.status = "idle";
@@ -915,6 +915,7 @@ export class Threads {
     }
     if (!lp) {
       lp = this.launch(bin, [...args, "--input-format", "stream-json"], cwd, env);
+      lp.scope = costScope(bin);
       lp.key = key;
       lp.mode = args.includes("--permission-mode") ? args[args.indexOf("--permission-mode") + 1] : undefined;
       this.live.set(id, lp);
@@ -1169,6 +1170,23 @@ function resultText(content) {
   return content == null ? "" : JSON.stringify(content);
 }
 
+/** What Claude Code's reported cost covers, for this copy of it: from 2.1.277, the whole session's spend (a run started
+ *  with --resume carries what the session cost before into it); before that, only this run's. Asked once per program. */
+const costScopes = new Map();
+export function costScope(bin) {
+  if (!bin) return "session";
+  if (!costScopes.has(bin)) {
+    let scope = "session";
+    try {
+      const v = /(\d+)\.(\d+)\.(\d+)/.exec(execFileSync(bin, ["--version"], { encoding: "utf8", timeout: 4000 }));
+      if (v) { const [a, b, c] = [Number(v[1]), Number(v[2]), Number(v[3])]; scope = a < 2 || (a === 2 && (b < 1 || (b === 1 && c < 277))) ? "run" : "session"; }
+    } catch {
+      /* not answered: the scope of the versions in use now */
+    }
+    costScopes.set(bin, scope);
+  }
+  return costScopes.get(bin);
+}
 function claudeReader(th, id, turn, lp) {
   let done = false, failure = null;
   // per speaker (the agent itself, or a helper it started): the message being written, and its pieces in order
@@ -1246,19 +1264,24 @@ function claudeReader(th, id, turn, lp) {
       if (ev.type === "result") {
         done = true;
         const t = th.get(id);
-        // What it says it has cost is a running total, not this turn's: of its session so far (Claude Code resumed with
-        // --resume carries the session's earlier spend into it), or, in older versions, of this run of it only. Each
-        // session's total is kept, and only what it grew by is added to the thread's, so no turn is counted twice: a
-        // run's first total below what its session is known to have cost is a run that started from nothing, and is
-        // added whole. (A result with no total, or a lower one later in the same run, adds nothing.)
+        // What it says it has cost is a running total, not this turn's: of its whole session (Claude Code from 2.1.277:
+        // a run resumed with --resume carries the session's earlier spend), or of this run only (earlier versions). Only
+        // what the total grew by is added to the thread's, so no turn is counted twice. A session whose earlier spend
+        // isn't known (a thread from before costs were counted this way) takes its first total as where to count from.
         const total = Number(ev.total_cost_usd);
         if (Number.isFinite(total) && total > 0) {
-          const sid = ev.session_id || t.meta.sessions?.claude || "?", costs = { ...(t.meta.costs || {}) }, known = costs[sid] || 0;
+          const sid = ev.session_id || t.meta.sessions?.claude || "?", costs = { ...(t.meta.costs || {}) };
           let added;
-          if (lp && lp.costSeen !== undefined) added = Math.max(0, total - lp.costSeen);
-          else added = total >= known ? total - known : total;
-          if (lp) lp.costSeen = total;
-          costs[sid] = known + added;
+          if ((lp?.scope ?? "session") === "session") {
+            const known = costs[sid];
+            added = known === null ? 0 : Math.max(0, total - (known ?? 0));
+            costs[sid] = Math.max(total, known ?? 0);
+          } else {
+            const seen = lp?.costSeen ?? 0;
+            added = total >= seen ? total - seen : total;
+            if (lp) lp.costSeen = total;
+            costs[sid] = (costs[sid] ?? 0) + added;
+          }
           th.meta(id, { costs, cost: (t.meta.cost || 0) + added, lastMs: ev.duration_ms });
         } else th.meta(id, { lastMs: ev.duration_ms });
         if (ev.is_error) failure = clip(String(ev.result || ev.subtype || "The turn failed"), 800);
