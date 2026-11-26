@@ -72,6 +72,14 @@ export default async ({ page, shot }) => {
   const listed = await page.locator(".ask-more-list button").allInnerTexts();
   check("+N opens a list of them, the latest closed first", listed.length === 2 && /Payments/.test(listed[0] ?? ""), listed);
   await shot?.("more");
+  // (Escape closes the list and leaves the board's selection be)
+  await E(() => { const st = window.__editor.store; st.run(() => st.put({ id: "r1", kind: "rect", x: 0, y: 0, w: 120, h: 60, text: "Acme", tone: "ink", fill: "tint" })); st.select(["r1"]); st.emit(); });
+  const sel0 = await E(() => [...window.__editor.store.sel].join());
+  await page.keyboard.press("Escape");
+  await wait(200);
+  check("Escape closes the list, leaving what is selected on the board", !(await page.isVisible(".ask-more-list")) && sel0 === "r1" && (await E(() => [...window.__editor.store.sel].join())) === sel0, sel0);
+  await more.click();
+  await wait(300);
   await page.locator(".ask-more-list button", { hasText: "Acme" }).click();
   await wait(500);
   const reading = await E(() => document.querySelector(".ask-reader")?.textContent ?? "");

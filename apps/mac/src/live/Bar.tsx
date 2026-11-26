@@ -312,8 +312,11 @@ function More({ hidden, open }: { hidden: { id: Id; title: string; state: string
   useEffect(() => {
     if (!on) return;
     const away = (e: PointerEvent) => !here.current?.contains(e.target as Node) && setOn(false);
+    // (Escape closes the list, and only the list: the board's selection is left as it is)
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && (e.preventDefault(), e.stopImmediatePropagation(), setOn(false));
     window.addEventListener("pointerdown", away, true);
-    return () => window.removeEventListener("pointerdown", away, true);
+    window.addEventListener("keydown", esc, true);
+    return () => (window.removeEventListener("pointerdown", away, true), window.removeEventListener("keydown", esc, true));
   }, [on]);
   return (
     <div ref={here} className="ask-more-wrap">
