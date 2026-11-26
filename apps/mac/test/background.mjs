@@ -119,4 +119,10 @@ export default async ({ app, page, shot }) => {
   await wait(1500);
   const failed = await E((T) => ({ dot: document.querySelector(`[data-live="${T}"] .live-dot`)?.getAttribute("data-state"), strip: document.querySelector(`[data-live="${T}"] .thread-behind`)?.textContent ?? null, pill: document.querySelector('.top-pill[data-state="error"]')?.textContent ?? null }), T);
   check("a failed turn is said first (stopped), with the work still going on shown on the card", failed.dot === "error" && /resumed/.test(failed.strip ?? ""), failed);
+  await E(() => { const st = window.__editor.store; st.cam = { ...st.cam, z: 0.15 }; st.emit(); });
+  await wait(700);
+  const farErr = await E((T) => document.querySelector(`[data-live="${T}"] .far-state`)?.textContent ?? null, T);
+  check("…and far off it says Stopped, not the work in the background", farErr === "Stopped", farErr);
+  await E((T) => window.__editor.fit([T]), T);
+  await wait(400);
 };

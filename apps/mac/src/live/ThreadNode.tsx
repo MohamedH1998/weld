@@ -196,7 +196,7 @@ export function ThreadNode({ box, editor, active, far }: NodeProps) {
       <Head state={state}>
         <Dot state={state} />
         <span className="live-title min-w-0 flex-1 truncate">{title}</span>
-        {folded && state !== "quiet" && <span className="live-meta live-fold-state" data-state={state}>{meta?.asking ? "Waiting for you" : running ? "Working" : behind.length ? "In the background" : state === "error" ? "Stopped" : "Ready"}</span>}
+        {folded && state !== "quiet" && <span className="live-meta live-fold-state" data-state={state}>{meta?.asking ? "Waiting for you" : running ? "Working" : state === "error" ? "Stopped" : behind.length ? "In the background" : "Ready"}</span>}
         {running && meta?.startedAt && <span className="live-meta">{span(now - meta.startedAt)}</span>}
         {!running && items.length > 0 && (
           <button type="button" aria-label="Copy this thread beside it" title="Branch into a new thread" className="live-icon ctl" onMouseDown={(e) => e.preventDefault()} onClick={() => void fork()}>
@@ -222,7 +222,8 @@ export function ThreadNode({ box, editor, active, far }: NodeProps) {
       {meta && <Composer id={box.id} editor={editor} meta={meta} items={items} running={running} active={active && !far && !folded} onFolder={() => void setCwd()} />}
       </div>
       {/* (seen from far off, work going on in the background is said there too) */}
-      {folded ? <FarBar w={box.w} title={title} state={state} note={meta?.asking ? "Waiting for you" : behind.length ? "In the background" : undefined} /> : <FarCard w={box.w} h={box.h} icon={ChatCircle} title={title} line={behind.length ? `In the background: ${behind.map((b) => b.what).join(", ")}` : lastLine} state={state} note={meta?.asking ? "Waiting for you" : behind.length ? "In the background" : undefined} />}
+      {/* (a failed turn is said first there too: "Stopped", and its own line) */}
+      {folded ? <FarBar w={box.w} title={title} state={state} note={meta?.asking ? "Waiting for you" : behind.length && state !== "error" ? "In the background" : undefined} /> : <FarCard w={box.w} h={box.h} icon={ChatCircle} title={title} line={behind.length && state !== "error" ? `In the background: ${behind.map((b) => b.what).join(", ")}` : lastLine} state={state} note={meta?.asking ? "Waiting for you" : behind.length && state !== "error" ? "In the background" : undefined} />}
     </div>
   );
 }

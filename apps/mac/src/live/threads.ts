@@ -11,7 +11,7 @@ const any = new Set<() => void>();
 const versions = new Map<string, number>();
 let brief = 0;
 // (work in the background is part of it: the corner and the bar count it)
-const briefOf = (t: Thread | undefined) => (t ? `${t.meta.status}|${t.meta.error ? 1 : 0}|${t.meta.unread ? 1 : 0}|${t.meta.asking ? 1 : 0}|${t.meta.title}|${t.meta.cwd}|${(t.meta.background ?? []).map((b) => b.id).join(",")}|${t.meta.backgroundMore ?? 0}` : "");
+const briefOf = (t: Thread | undefined) => (t ? `${t.meta.status}|${t.meta.error ? 1 : 0}|${t.meta.unread ? 1 : 0}|${t.meta.asking ? 1 : 0}|${t.meta.title}|${t.meta.cwd}|${(t.meta.background ?? []).map((b) => `${b.id}:${b.what}`).join(",")}|${t.meta.backgroundMore ?? 0}` : "");
 function set(id: string, t: Thread) {
   const was = briefOf(all.get(id));
   all.set(id, t);
