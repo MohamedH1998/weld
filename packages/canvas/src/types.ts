@@ -51,6 +51,8 @@ export interface Live {
   hue?: number;
   /** A thread folded down to its title: the height it had open, to go back to. */
   tall?: number;
+  /** When the person closed a thread's card, sending it back to the bar (ms): the bar shows it there from then on. */
+  closed?: number;
 }
 /** How a line is drawn. Absent means solid. */
 export type Line = "dashed" | "dotted";
@@ -75,6 +77,9 @@ export interface Box {
   img?: { hash: string; ext: string; w: number; h: number; name: string; preview?: boolean; origin?: string; by?: Id };
   /** Shapes that share this move, select and copy as one. */
   group?: Id;
+  /** Made or changed by the person (never set by an agent's drawing): theirs, so an agent does not take it away, move it
+   *  back or reword it without being asked. */
+  edited?: true;
   /** Held in place: not picked up, moved or deleted until unlocked. */
   locked?: true;
   /** Not there in this moment of a group that moves (it is in others). */
@@ -190,6 +195,8 @@ export interface Text {
   tone: Tone;
   rot?: number;
   group?: Id;
+  /** As on a Box: made or changed by the person. */
+  edited?: true;
   locked?: true;
   /** Not there in this moment of a group that moves (it is in others). */
   away?: true;
@@ -271,6 +278,8 @@ export interface Arrow {
   tone: Tone;
   line?: Line;
   group?: Id;
+  /** As on a Box: made or changed by the person. */
+  edited?: true;
   locked?: true;
   /** Not there in this moment of a group that moves (it is in others). */
   away?: true;
