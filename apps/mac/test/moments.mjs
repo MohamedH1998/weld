@@ -87,6 +87,17 @@ export default async ({ app, page, out }) => {
   // Group is offered only when it would take something in: a whole drawing that plays and a conversation, not
   await E(([g, T]) => { const ed = window.__editor, d = ed.store.doc; ed.store.select([...d.order.filter((id) => d.shapes[id]?.group === g), T]); }, [g4, T]);
   check("Group isn't offered for a drawing that plays and only a conversation beside it", (await E(() => window.__editor.canGroup)) === false);
+  // grouped with a still group holding a box and a terminal: the box joins, the terminal stands apart, the drawing stays picked
+  const grouped = await E((g) => {
+    const ed = window.__editor, st = ed.store;
+    st.run(() => { st.put({ id: "sb1", kind: "rect", x: 6000, y: 0, w: 160, h: 80, text: "Acme", tone: "ink", fill: "tint", group: "sg1" }); st.put({ id: "st1", kind: "terminal", x: 6300, y: 0, w: 400, h: 260, text: "", tone: "ink", fill: "none", group: "sg1", live: {} }); });
+    const d = st.doc;
+    st.select([...d.order.filter((id) => d.shapes[id]?.group === g), "sb1", "st1"]);
+    ed.group();
+    const d2 = st.doc;
+    return { box: d2.shapes.sb1?.group, term: d2.shapes.st1?.group ?? null, whole: d2.order.filter((id) => d2.shapes[id]?.group === g).every((id) => st.sel.has(id)) && !st.sel.has("st1"), scene: ed.sceneGroup };
+  }, g4);
+  check("grouped with a still group holding a box and a terminal: the box joins, the terminal stands apart, the moving drawing stays picked", grouped.box === g4 && grouped.term === null && grouped.whole && grouped.scene === g4, grouped);
   // a wire from a drawing that plays to a conversation stays joined to it, saved and opened twice, stepping through it
   const joined = await E(([g, T]) => {
     const st = window.__editor.store, d = st.doc, part = d.order.find((id) => d.shapes[id]?.group === g && d.shapes[id].kind !== "arrow" && d.shapes[id].kind !== "text" && "w" in d.shapes[id]);

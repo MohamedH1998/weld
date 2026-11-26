@@ -2304,10 +2304,18 @@ export class Editor {
     const s = this.store, scenes = s.doc.scenes ?? {};
     // shapes grouped with a group that moves join it (and are there from this moment on)
     const gid = this.selected().map((sh) => sh.group).find((g) => !!g && !!scenes[g]) ?? newId();
+    const moving = !!scenes[gid];
     s.run(() => {
-      // (a conversation, terminal or page doesn't join a group that moves)
-      s.put(...this.selected().filter((sh) => !scenes[gid] || !isLive(sh)).map((sh) => ({ ...sh, group: gid })));
+      // (a conversation, terminal or page doesn't join a group that moves: it leaves whatever group it was in, as itself,
+      // and what stays picked is the drawing that moves, its moments still to hand)
+      s.put(...this.selected().map((sh) => {
+        if (!moving || !isLive(sh)) return { ...sh, group: gid };
+        const o = { ...sh };
+        delete o.group;
+        return o;
+      }));
       this.tidyScenes();
+      if (moving) s.select(this.members(s.doc, gid).map((sh) => sh.id));
     });
     this.invalidate();
   }
