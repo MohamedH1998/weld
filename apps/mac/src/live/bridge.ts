@@ -46,6 +46,12 @@ export interface Meta {
   agent: Agent;
   /** Its session open in its agent's own app (Weld holds what is said here until it comes back). */
   outside?: { app: string; sid: string; since: number; pending?: boolean; dir?: string } | null;
+  /** Work its agent has going on in the background after its turn (a command, a helper agent), while it runs. */
+  background?: { id: string; what: string; kind?: string; since: number }[];
+  /** How many more than those shown (the newest dozen) it has going. */
+  backgroundMore?: number;
+  /** When the oldest of all it has going in the background began (ms). */
+  backgroundSince?: number | null;
   mode: Mode;
   /** The model asked for, and the agent it was asked of (another agent goes with its own default). */
   model?: string;

@@ -46,17 +46,18 @@ process.stdin.on("data", (d) => {
     // "bgu:<s>" with only the update; "bgmany" a long one (20 s) and a dozen short ones (3 s)
     const said = JSON.stringify(m.message?.content ?? "");
     const tasks = [];
-    for (const [, how, secs] of said.matchAll(/\b(bg|bgn|bgu):(\d+)/g)) tasks.push({ id: `t${n}${how}`, what: "Build the Acme API", secs: Number(secs), how });
+    for (const [, how, secs] of said.matchAll(/\b(bg|bgn|bgu|bgamb):(\d+)/g)) tasks.push({ id: `t${n}${how}`, what: how === "bgamb" ? "Watching for updates" : "Build the Acme API", secs: Number(secs), how });
     if (/bgmany/.test(said)) {
       tasks.push({ id: `t${n}long`, what: "Long build", secs: 20, how: "bg" });
       for (let k = 0; k < 12; k++) tasks.push({ id: `t${n}s${k}`, what: `Short check ${k + 1}`, secs: 3, how: "bg" });
     }
     out({ type: "system", subtype: "init", session_id: sid, model: "fake", tools: [], slash_commands: [] });
     for (const task of tasks) {
-      out({ type: "system", subtype: "task_started", task_id: task.id, description: task.what, task_type: "local_bash", is_backgrounded: true, session_id: sid });
+      const run = `r-${task.id}`;
+      out({ type: "system", subtype: "task_started", task_id: task.id, run_id: run, description: task.what, task_type: "local_bash", is_backgrounded: true, ...(task.how === "bgamb" ? { ambient: true } : {}), session_id: sid });
       setTimeout(() => {
-        if (task.how !== "bgn") out({ type: "system", subtype: "task_updated", task_id: task.id, patch: { status: "completed" }, session_id: sid });
-        if (task.how !== "bgu") out({ type: "system", subtype: "task_notification", task_id: task.id, status: "completed", summary: `Background command "${task.what}" completed (exit code 0)`, session_id: sid });
+        if (task.how !== "bgn") out({ type: "system", subtype: "task_updated", task_id: task.id, run_id: run, patch: { status: "completed" }, session_id: sid });
+        if (task.how !== "bgu") out({ type: "system", subtype: "task_notification", task_id: task.id, run_id: run, status: "completed", summary: `Background command "${task.what}" completed (exit code 0)`, session_id: sid });
         if (task.how === "bg" && task.what === "Build the Acme API") {
           out({ type: "system", subtype: "init", session_id: sid, model: "fake", tools: [], slash_commands: [] });
           out({ type: "assistant", session_id: sid, message: { id: `m${n}b`, role: "assistant", content: [{ type: "text", text: "the build finished" }] } });
@@ -65,6 +66,19 @@ process.stdin.on("data", (d) => {
       }, task.secs * 1000);
     }
     out({ type: "system", subtype: "init", session_id: sid, model: "fake", tools: [], slash_commands: [] });
+    // ("bgreuse": a helper resumed under the same task id, a new run; the old run's ending arriving late, after it)
+    if (/bgreuse/.test(said)) {
+      const k = `h${n}`;
+      out({ type: "system", subtype: "task_started", task_id: k, run_id: "r1", description: "Review helper", task_type: "local_agent", is_backgrounded: true, session_id: sid });
+      setTimeout(() => out({ type: "system", subtype: "task_started", task_id: k, run_id: "r2", description: "Review helper (resumed)", task_type: "local_agent", is_backgrounded: true, session_id: sid }), 1000);
+      setTimeout(() => out({ type: "system", subtype: "task_notification", task_id: k, run_id: "r1", status: "completed", session_id: sid }), 2000);
+      setTimeout(() => out({ type: "system", subtype: "task_notification", task_id: k, run_id: "r2", status: "completed", session_id: sid }), 8000);
+    }
+    // ("fail": this turn fails)
+    if (/\bfail\b/.test(said)) {
+      out({ type: "result", subtype: "error_during_execution", session_id: sid, is_error: true, duration_ms: 10, num_turns: 1, result: "it failed", total_cost_usd: runScoped ? ran : spent });
+      continue;
+    }
     out({ type: "assistant", session_id: sid, message: { id: `m${n}`, role: "assistant", content: [{ type: "text", text: `ok ${n}` }] } });
     out({ type: "result", subtype: "success", session_id: sid, is_error: false, duration_ms: 10, num_turns: 1, result: `ok ${n}`, total_cost_usd: runScoped ? ran : spent });
   }

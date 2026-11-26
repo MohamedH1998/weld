@@ -164,7 +164,13 @@ export function ThreadNode({ box, editor, active, far }: NodeProps) {
     if (active && !far && !box.live?.tall && meta?.unread) void weld.thread.seen(box.id);
   }, [active, far, meta?.unread, box.id, box.live?.tall]);
 
-  const state: "working" | "ready" | "error" | "quiet" = meta?.asking ? "ready" : running ? "working" : meta?.error ? "error" : meta?.unread ? "ready" : "quiet";
+  // (its turn over, work it left going in the background still counts as working)
+  const behind = running ? [] : meta?.background ?? [];
+  // (a turn that failed is said first; the strip still shows what goes on in the background)
+  // (and an answer not yet read is for the person, before work going on behind it: the strip still shows that)
+  const state: "working" | "ready" | "error" | "quiet" = meta?.asking ? "ready" : running ? "working" : meta?.error ? "error" : meta?.unread ? "ready" : behind.length ? "working" : "quiet";
+  // (what the card's face says of it: only when nothing comes before it)
+  const said = state === "working" ? behind : [];
   const title = box.text || meta?.title || "New thread";
   // (read from the bar, a thread kept off the board has no card to fold or take off)
   const away = !!awayBox(editor, box.id);
@@ -206,7 +212,7 @@ export function ThreadNode({ box, editor, active, far }: NodeProps) {
       <Head state={state}>
         <Dot state={state} />
         <span className="live-title min-w-0 flex-1 truncate">{title}</span>
-        {folded && state !== "quiet" && <span className="live-meta live-fold-state" data-state={state}>{meta?.asking ? "Waiting for you" : running ? "Working" : state === "error" ? "Stopped" : "Ready"}</span>}
+        {folded && state !== "quiet" && <span className="live-meta live-fold-state" data-state={state}>{meta?.asking ? "Waiting for you" : running ? "Working" : state === "error" ? "Stopped" : said.length ? "In the background" : "Ready"}</span>}
         {running && meta?.startedAt && <span className="live-meta">{span(now - meta.startedAt)}</span>}
         {!running && items.length > 0 && (
           <button type="button" aria-label="Copy this thread beside it" title="Branch into a new thread" className="live-icon ctl" onMouseDown={(e) => e.preventDefault()} onClick={() => void fork()}>
@@ -241,9 +247,12 @@ export function ThreadNode({ box, editor, active, far }: NodeProps) {
         )}
       <Sees editor={editor} id={box.id} />
       <Transcript items={items} meta={meta} running={running} active={active} editor={editor} id={box.id} unsaved={thread?.unsaved} />
+      {behind.length > 0 && <Behind list={behind} more={meta?.backgroundMore ?? 0} />}
       {meta && <Composer id={box.id} editor={editor} meta={meta} items={items} running={running} active={active && !far && !folded} onFolder={() => void setCwd()} />}
       </div>
-      {folded ? <FarBar w={box.w} title={title} state={state} note={meta?.asking ? "Waiting for you" : undefined} /> : <FarCard w={box.w} h={box.h} icon={ChatCircle} title={title} line={lastLine} state={state} note={meta?.asking ? "Waiting for you" : undefined} />}
+      {/* (seen from far off, work going on in the background is said there too) */}
+      {/* (a failed turn is said first there too: "Stopped", and its own line) */}
+      {folded ? <FarBar w={box.w} title={title} state={state} note={meta?.asking ? "Waiting for you" : said.length ? "In the background" : undefined} /> : <FarCard w={box.w} h={box.h} icon={ChatCircle} title={title} line={said.length ? `In the background: ${said.map((b) => b.what).join(", ")}` : lastLine} state={state} note={meta?.asking ? "Waiting for you" : said.length ? "In the background" : undefined} />}
     </div>
   );
 }
@@ -472,6 +481,20 @@ const Part = memo(function Part({ text, open, arriving }: { text: string; open: 
     </CodeSource.Provider>
   );
 });
+
+/** What its agent left going in the background after its turn, each by what the agent called it, and for how long. */
+function Behind({ list, more = 0 }: { list: NonNullable<Meta["background"]>; more?: number }) {
+  const now = useNow(true);
+  return (
+    <div className="thread-behind" role="status">
+      <span className="thread-spin" />
+      <span className="truncate">
+        {list.length + more === 1 ? "In the background: " : `${list.length + more} in the background: `}
+        {list.map((b) => `${b.what} · ${span(now - b.since)}`).join(", ")}
+      </span>
+    </div>
+  );
+}
 
 /** Bring a thread back from its agent's own app; while a run of it is still going there, only on being pressed again. */
 function TakeBack({ id, app }: { id: Id; app: string }) {

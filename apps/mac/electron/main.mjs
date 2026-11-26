@@ -516,6 +516,8 @@ const terminals = new Terminals((id, ev) => {
 }, doorEnv);
 // (for checks run against a scratch copy only)
 if (TEST) globalThis.__termsRecent = (id) => terminals.recent(id, 400, true)?.text ?? "";
+// (what a thread's kept agent has going, to keep it from being let go as idle)
+if (TEST) globalThis.__tasksOf = (id) => threads.live.get(id)?.tasks ?? 0;
 // ── what threads leave running ──────────────────────────────────────
 /** Start (or start over) a thread's background command: the same command in the same folder is the same one, begun again. */
 // (each is the command's own process, in a login shell's surroundings: when it ends, it is seen to have ended)
@@ -1574,8 +1576,9 @@ function wire() {
       for (const id of ids) {
         const t = threads.all.get(id);
         if (!t) continue;
-        if (t.meta.status === "running") working++;
-        else if (t.meta.unread || t.meta.asking) waiting++;
+        // (one with work going on behind it and an answer not yet read is both: at work, and for the person)
+        if (t.meta.status === "running" || threads.behind(id)) working++;
+        if (t.meta.status !== "running" && (t.meta.unread || t.meta.asking)) waiting++;
       }
       return { id: b.id, name: b.name, dir: b.dir ?? null, current: b.id === cur, working, waiting };
     });
@@ -1613,7 +1616,7 @@ function wire() {
   });
   // (not while an agent on it is at work: its work would have nowhere to show)
   ipcMain.handle("boards:putAway", (_e, id) => {
-    const busy = (t) => threads.running.has(t) || threads.starting.has(t) || threads.held(t) || (threads.all.get(t)?.meta.queue?.length ?? 0) > 0;
+    const busy = (t) => threads.running.has(t) || threads.starting.has(t) || threads.held(t) || threads.behind(t) || (threads.all.get(t)?.meta.queue?.length ?? 0) > 0;
     return ![...boards().threadsOf(String(id))].some(busy) && boards().putAway(String(id));
   });
   // the models Codex itself lists (from the list it keeps on this Mac), newest first
@@ -1753,7 +1756,7 @@ function wire() {
     const on = new Set([...(Array.isArray(ids) ? ids : []), ...boards().awayThreads()]);
     for (const [id, t] of threads.all) {
       if (on.has(id) || id.startsWith("smith")) continue;
-      if (threads.running.has(id)) await threads.stop(id);
+      if (threads.running.has(id) || threads.behind(id)) await threads.stop(id);
       const svc = (t.meta.services ?? []).filter((s) => s.alive);
       for (const s of svc) terminals.close(s.id);
       if (svc.length) threads.meta(id, { services: (t.meta.services ?? []).filter((s) => !s.alive) });
@@ -1947,7 +1950,8 @@ else {
   // Closing the window quits, unless something is still at work: an agent mid-turn, or a server a thread started.
   // Then the app stays (its work goes on) and says so, once; ⌘Q, or the Dock, quits it outright.
   app.on("window-all-closed", () => {
-    const agents = threads.running.size;
+    // (an agent whose turn is over but has work going on in the background is at work too)
+    const agents = new Set([...threads.running.keys(), ...[...threads.live.keys()].filter((t) => threads.behind(t))]).size;
     const servers = [...threads.all.values()].reduce((n, t) => n + (t.meta.services ?? []).filter((x) => x.alive).length, 0);
     // a terminal running something (a build, an editor), not just sitting at its prompt, is work too
     let shells = 0;

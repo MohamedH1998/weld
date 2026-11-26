@@ -177,11 +177,14 @@ export const Bar = memo(function Bar({ editor, dark }: { editor: Editor; dark: b
     setText("");
   };
 
-  // the threads kept here that have something to say (at work, waiting for the person, or done and not yet read), then
-  // those the person closed, sent back here by its X, the latest first: a thread closed is in the bar, never just gone
-  const saying = ({ b, t }: { b: Box; t: ReturnType<typeof threads.get> }) => openings.has(b.id) || !!(t && (t.meta.status === "running" || t.meta.asking || t.meta.unread || t.meta.error));
+  // the threads kept here that have something to say (at work, in the background too, waiting for the person, or done and
+  // not yet read), then those the person closed, sent back here by its X, the latest first: a thread closed is in the
+  // bar, never just gone
+  const onlyBehind = (id: Id, t: ReturnType<typeof threads.get>) => !openings.has(id) && !!t && !!t.meta.background?.length && t.meta.status !== "running" && !t.meta.asking && !t.meta.unread && !t.meta.error;
+  const saying = ({ b, t }: { b: Box; t: ReturnType<typeof threads.get> }) => openings.has(b.id) || !!(t && (t.meta.status === "running" || t.meta.background?.length || t.meta.asking || t.meta.unread || t.meta.error));
   const all = away.map((b) => ({ b, t: threads.get(b.id) }));
-  const live = [...all.filter(saying), ...all.filter((x) => !saying(x) && x.b.live?.closed).sort((x, y) => (y.b.live!.closed ?? 0) - (x.b.live!.closed ?? 0))];
+  // (one only busy in the background goes after the rest: one asking the person, or answering, is never behind the +N)
+  const live = [...all.filter(saying).sort((x, y) => Number(onlyBehind(x.b.id, x.t)) - Number(onlyBehind(y.b.id, y.t))), ...all.filter((x) => !saying(x) && x.b.live?.closed).sort((x, y) => (y.b.live!.closed ?? 0) - (x.b.live!.closed ?? 0))];
   const empty = store.doc.order.length === 0 && away.length === 0 && smiths.size === 0 && store.tool === "select" && !store.busy;
   const open = reading ? awayBox(editor, reading) : undefined;
   // (with no agent yet: the card offering them, on a board that is empty but for the terminals it opened; elsewhere, Settings)
@@ -211,9 +214,9 @@ export const Bar = memo(function Bar({ editor, dark }: { editor: Editor; dark: b
           live.length > 0 && (
             <div className="ask-capsules">
               {live.slice(0, 3).map(({ b, t }) => (
-                <Capsule key={b.id} box={b} items={t?.items ?? []} running={t?.meta.status === "running" || openings.has(b.id)} error={!!t?.meta.error} title={b.text || t?.meta.title || "New thread"} cwd={t?.meta.cwd} onOpen={() => setReading(b.id)} />
+                <Capsule key={b.id} box={b} items={t?.items ?? []} behind={t?.meta.status === "running" || t?.meta.error || t?.meta.unread ? undefined : t?.meta.background} running={t?.meta.status === "running" || openings.has(b.id)} error={!!t?.meta.error} title={b.text || t?.meta.title || "New thread"} cwd={t?.meta.cwd} onOpen={() => setReading(b.id)} />
               ))}
-              {live.length > 3 && <More hidden={live.slice(3).map(({ b, t }) => ({ id: b.id, title: b.text || t?.meta.title || "New thread", state: t?.meta.asking ? "ready" : t?.meta.status === "running" || openings.has(b.id) ? "working" : t?.meta.error ? "error" : "done" }))} open={setReading} />}
+              {live.length > 3 && <More hidden={live.slice(3).map(({ b, t }) => ({ id: b.id, title: b.text || t?.meta.title || "New thread", state: t?.meta.asking ? "ready" : t?.meta.status === "running" || openings.has(b.id) ? "working" : t?.meta.error ? "error" : t?.meta.unread ? "done" : t?.meta.background?.length ? "working" : "done" }))} open={setReading} />}
             </div>
           )
         )}
@@ -337,9 +340,11 @@ function More({ hidden, open }: { hidden: { id: Id; title: string; state: string
   );
 }
 
-function Capsule({ box, items, running, error, title, cwd, onOpen }: { box: Box; items: Item[]; running: boolean; error: boolean; title: string; cwd?: string; onOpen: () => void }) {
-  const { ask, text } = lineOf(items, running, cwd, error);
-  const state = ask ? "ready" : running ? "working" : error ? "error" : "done";
+function Capsule({ box, items, running, behind, error, title, cwd, onOpen }: { box: Box; items: Item[]; running: boolean; behind?: { what: string }[]; error: boolean; title: string; cwd?: string; onOpen: () => void }) {
+  const { ask, text: said } = lineOf(items, running, cwd, error);
+  // (its turn over, with work going on in the background: it says so, and what)
+  const text = !ask && !running && behind?.length ? `In the background: ${behind.map((b) => b.what).join(", ")}` : said;
+  const state = ask ? "ready" : running || behind?.length ? "working" : error ? "error" : "done";
   return (
     <div className="ask-capsule" data-state={state} role="button" tabIndex={0} onClick={(e) => !(e.target as Element).closest("button") && onOpen()} onKeyDown={(e) => e.key === "Enter" && onOpen()}>
       <span className="live-dot" data-state={state === "done" ? "ready" : state} />

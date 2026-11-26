@@ -25,7 +25,9 @@ function useLive(editor: Editor) {
     if (b.kind === "thread") {
       const m = threads.get(b.id)?.meta;
       // waiting on the person to allow something is waiting for them, before it is working
-      return m?.asking ? "ready" : m?.status === "running" ? "working" : m?.error ? "error" : m?.unread ? "ready" : "quiet";
+      // (a turn that failed is said before work still going on in the background from before it)
+      // (and an answer not yet read is for the person, before work still going on behind it)
+      return m?.asking ? "ready" : m?.status === "running" ? "working" : m?.error ? "error" : m?.unread ? "ready" : m?.background?.length ? "working" : "quiet";
     }
     return facts.get(b.id)?.busy ? "working" : "quiet";
   };
@@ -147,8 +149,12 @@ function RunningRow({ editor, box, state, onHover, go }: { editor: Editor; box: 
     return () => clearInterval(i);
   }, [state]);
   const meta = t?.meta;
-  const doing = meta?.asking ? "Waiting for you" : state === "working" ? doingNow(t?.items ?? [], true, meta?.cwd) : state === "error" ? "Stopped" : "Ready for you";
-  const secs = meta?.startedAt && state === "working" ? Math.max(0, Math.round((Date.now() - meta.startedAt) / 1000)) : null;
+  // (its turn over, working in the background: what, and for how long)
+  // (said only when nothing comes before it: a failed turn, or an answer not yet read)
+  const behind = meta?.status !== "running" && !meta?.error && !meta?.unread ? meta?.background ?? [] : [];
+  const doing = meta?.asking ? "Waiting for you" : behind.length ? `In the background: ${behind.map((b) => b.what).join(", ")}` : state === "working" ? doingNow(t?.items ?? [], true, meta?.cwd) : state === "error" ? "Stopped" : "Ready for you";
+  const from = behind.length ? meta?.backgroundSince ?? Math.min(...behind.map((b) => b.since)) : meta?.startedAt;
+  const secs = from && state === "working" ? Math.max(0, Math.round((Date.now() - from) / 1000)) : null;
   return (
     <button type="button" className="running-row" style={{ ["--hue" as string]: hueOf(editor, box.id) }} onMouseEnter={onHover} onMouseDown={(e) => e.preventDefault()} onClick={go}>
       <span className="running-hue" />
