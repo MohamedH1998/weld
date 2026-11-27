@@ -7,7 +7,7 @@ import Markdown, { type Components } from "react-markdown";
 import { createPortal } from "react-dom";
 import remarkGfm from "remark-gfm";
 import { AgentLogo } from "./AgentLogo";
-import { defaultCwd, folderName, isScratch, weld, remember, settings, tilde, agentList, agentName, agentOf, chosenAgent, chosenModel } from "./bridge";
+import { defaultCwd, folderName, isScratch, weld, remember, settings, tilde, agentList, agentName, agentOf, agentsFound, chosenAgent, chosenModel, enable } from "./bridge";
 import type { Item, Meta, Mode, AgentInfo } from "./bridge";
 import type { NodeProps } from "./LiveLayer";
 import { Dot, FarBar, FarCard, Head } from "./LiveLayer";
@@ -1170,13 +1170,17 @@ function Composer({ id, editor, meta, items, running, active, onFolder }: { id: 
           {agentList(true)
             // (an ACP agent is listed once it is installed; Claude, Codex and the person's own always)
             .filter((a) => a.kind !== "flavor" || a.installed || a.id === meta.agent)
-            .map((a) => (
-              <button key={a.id} type="button" aria-current={meta.agent === a.id} disabled={!a.installed} onClick={() => (setMeta(id, { agent: a.id }), remember({ agent: a.id }), setMenu(null))}>
-                <AgentLogo id={a.id} />
-                {a.name}
-                <span className="sub">{!a.installed ? "not installed" : a.id !== meta.agent && items.length && !meta.sessions[a.id] ? "picks up from here" : subOf(a)}</span>
-              </button>
-            ))}
+            .map((a) => {
+              // (on this Mac but switched off: one press switches it on and picks it)
+              const off = !a.installed && !!agentsFound().find((f) => f.id === a.id)?.installed;
+              return (
+                <button key={a.id} type="button" aria-current={meta.agent === a.id} disabled={!a.installed && !off} onClick={() => (off && enable(a.id), setMeta(id, { agent: a.id }), remember({ agent: a.id }), setMenu(null))}>
+                  <AgentLogo id={a.id} />
+                  {a.name}
+                  <span className="sub">{!a.installed ? (off ? "off: pick to turn on" : "not installed") : a.id !== meta.agent && items.length && !meta.sessions[a.id] ? "picks up from here" : subOf(a)}</span>
+                </button>
+              );
+            })}
         </div>
       )}
       {menu === "mode" && (

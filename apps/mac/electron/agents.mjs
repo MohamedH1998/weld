@@ -1081,7 +1081,7 @@ export class Threads {
     this.live.delete(id);
     // (its ending, waited for by a hand-out of the thread to its agent's own app: two runs of a session must not overlap)
     if (!lp.dead) {
-      const p = Promise.race([new Promise((done) => (lp.proc.exitCode !== null || lp.proc.signalCode !== null ? done() : lp.proc.once("exit", () => done()))), new Promise((r) => setTimeout(r, 6000))]);
+      const p = !lp.proc ? Promise.resolve() : Promise.race([new Promise((done) => (lp.proc.exitCode !== null || lp.proc.signalCode !== null ? done() : lp.proc.once("exit", () => done()))), new Promise((r) => setTimeout(r, 6000))]);
       const was = this.exiting.get(id), all = was ? Promise.all([was, p]) : p;
       this.exiting.set(id, all);
       void all.then(() => this.exiting.get(id) === all && this.exiting.delete(id));
@@ -1234,24 +1234,32 @@ export class Threads {
   shutdown() {
     // nothing waiting to start may start now
     this.starting.clear();
-    for (const [id, run] of this.running) {
-      run.stopped = true;
-      // (an ACP agent ends itself and all it started: waited for below)
-      const gone = run.hard?.();
-      if (gone) (this.ending ??= []).push(gone);
-      signal(run.proc, "SIGTERM");
-      signal(run.proc, "SIGKILL");
-      const th = this.all.get(id);
-      if (th) th.meta.status = "running";
-      this.save(id);
-    }
-    for (const id of [...this.live.keys()]) this.drop(id);
-    for (const c of this.codexes.values()) c.shutdown();
+    // (each thing on its own: one that fails never keeps the rest from being ended and written down)
+    const step = (fn) => {
+      try {
+        fn();
+      } catch (e) {
+        console.error("[shutdown]", e);
+      }
+    };
+    for (const [id, run] of this.running)
+      step(() => {
+        run.stopped = true;
+        // (an ACP agent ends itself and all it started: waited for below)
+        const gone = run.hard?.();
+        if (gone) (this.ending ??= []).push(gone);
+        if (run.proc) (signal(run.proc, "SIGTERM"), signal(run.proc, "SIGKILL"));
+        const th = this.all.get(id);
+        if (th) th.meta.status = "running";
+      });
+    for (const id of this.running.keys()) step(() => this.save(id));
+    for (const id of [...this.live.keys()]) step(() => this.drop(id));
+    for (const c of this.codexes.values()) step(() => c.shutdown());
     // everything not yet written is written, in order, behind whatever writing is already under way (a thread whose last
     // write failed is written whole, whether or not anything new was said)
     for (const t of this.retryTimers.values()) clearTimeout(t);
     this.retryTimers.clear();
-    for (const id of new Set([...this.timers.keys(), ...this.unsaved.keys()])) this.save(id);
+    for (const id of new Set([...this.timers.keys(), ...this.unsaved.keys()])) step(() => this.save(id));
     this.closed = true;
     return Promise.all([...this.chains.values()]);
   }
