@@ -323,9 +323,34 @@ export const seesOf = (editor: Editor, id: Id): string[] => {
   m.set(id, out);
   return out;
 };
+/** Notes the person left on the pages a thread opened: pointed at one with an arrow, or put on it or just beside it. They
+ *  are about that page, so the thread that opened it is shown them, as though they had been named with @. */
+export function notesOnPages(editor: Editor, thread: Id): string[] {
+  const doc = editor.store.doc;
+  const pages = doc.order.map((x) => doc.shapes[x] as Box | undefined).filter((b): b is Box => !!b && b.kind === "browser" && b.live?.by === thread);
+  if (!pages.length) return [];
+  const isNote = (s: Shape | undefined): s is Shape => !!s && !isArrow(s) && !isLive(s) && !isFrame(s) && (s as { kind: string }).kind !== "image" && !!textOf(s) && !(s as { away?: boolean }).away;
+  // (what the thread drew itself is its own, not the person's word on the page)
+  const drew = new Set(((doc.shapes[thread] as Box | undefined) ?? doc.away?.[thread])?.live?.drew ?? []);
+  const out = new Set<string>(), ids = new Set(pages.map((p) => p.id));
+  for (const x of doc.order) {
+    const s = doc.shapes[x];
+    if (!s || !isArrow(s) || (s as { away?: boolean }).away) continue;
+    const [a, b] = [s.a.bind?.id, s.b.bind?.id];
+    for (const [page, note] of [[a, b], [b, a]] as const) if (page && note && ids.has(page) && isNote(doc.shapes[note]) && !drew.has(note)) out.add(`note:${note}`);
+  }
+  // (on a page, or within a short reach of its edge)
+  const NEAR = 60;
+  for (const x of doc.order) {
+    const s = doc.shapes[x] as Box | undefined;
+    if (!isNote(s) || drew.has(x) || !("w" in s)) continue;
+    if (pages.some((p) => s.x < p.x + p.w + NEAR && p.x - NEAR < s.x + s.w && s.y < p.y + p.h + NEAR && p.y - NEAR < s.y + s.h)) out.add(`note:${x}`);
+  }
+  return [...out];
+}
 const seesNow = (editor: Editor, id: Id): string[] => {
   const named = ((editor.store.doc.shapes[id] as Box | undefined) ?? editor.store.doc.away?.[id])?.live?.sees ?? [];
-  const keys = [...new Set([...named, ...arrowedTo(editor, id).keys()])].filter((k) => resolve(editor, k));
+  const keys = [...new Set([...named, ...arrowedTo(editor, id).keys(), ...notesOnPages(editor, id)])].filter((k) => resolve(editor, k));
   // (the same thing named two ways, once: by what it is made of)
   const seen = new Set<string>();
   return keys.filter((k) => {

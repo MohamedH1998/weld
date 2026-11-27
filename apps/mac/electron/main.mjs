@@ -6,7 +6,7 @@ import { createHash } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import { execFile } from "node:child_process";
 import { createHmac, randomBytes } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync, watch } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync, watch } from "node:fs";
 import { readdir } from "node:fs/promises";
 import http from "node:http";
 import os from "node:os";
@@ -48,6 +48,15 @@ function readJson(p, fallback) {
     return JSON.parse(readFileSync(p, "utf8"));
   } catch {
     return fallback;
+  }
+}
+/** Whether this Weld was used before agents had to be switched on: it has threads. Every agent found stays on for it, as
+ *  it always was, until the person switches one off. */
+function usedBefore() {
+  try {
+    return readdirSync(file("threads")).some((f) => f.endsWith(".json") || f.endsWith(".log"));
+  } catch {
+    return false;
   }
 }
 /** Written beside the real file and moved over it, so a crash mid-write never leaves half a file. */
@@ -822,6 +831,20 @@ function jpegOf(hash, png) {
 // it is shown in, or write as though it were the person.
 const esc = (v) => String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 const attr = (v) => esc(v).replace(/"/g, "&quot;");
+/** A page as an agent is shown it: its words, what on it can be used, and its picture, each waited for only so long. */
+async function pageSeen(wc) {
+  const [words, can, img] = await Promise.all([
+    Promise.race([wc.executeJavaScript("(document.body && document.body.innerText || '').slice(0, 12000)").catch(() => ""), quietly(3000).then(() => "(the page did not answer in time)")]),
+    // (and what on it can be used, for weld click and weld type)
+    Promise.race([wc.executeJavaScriptInIsolatedWorld(WORLD, [{ code: CONTROLS }]).catch(() => ""), quietly(1500).then(() => "")]),
+    Promise.race([wc.capturePage().catch(() => null), quietly(3000).then(() => null)]),
+  ]);
+  if (wc.isDestroyed()) return null;
+  // (a page out of sight is not drawn, so it cannot be pictured now: the last still taken of it stands in)
+  const pic = img && !img.isEmpty() ? img : lastStill.has(wc.id) ? nativeImage.createFromBuffer(lastStill.get(wc.id)) : null;
+  const jpg = pic && !pic.isEmpty() ? (pic.getSize().width > 1600 ? pic.resize({ width: 1600 }) : pic).toJPEG(80).toString("base64") : null;
+  return { url: wc.getURL(), title: wc.getTitle(), words, can: String(can ?? "").slice(0, 3000), jpg };
+}
 async function describeNow(refs, thread) {
   const parts = [], images = [], seen = {};
   // the same, for an agent that turns out to start afresh (its saved conversation gone): nothing taken as seen
@@ -831,6 +854,13 @@ async function describeNow(refs, thread) {
   const tm = threads.get(thread).meta;
   const who = `${tm.agent ?? "claude"}|${tm.gen?.[tm.agent ?? "claude"] ?? "none"}`;
   const shown = refs.slice(0, 40);
+  // (every page is asked at once: each may take seconds to answer, and one after another, a few of them outlast the look)
+  const asked = new Map(
+    shown.filter((r) => r.kind === "browser").map((r) => {
+      const wc = r.webContentsId ? webContents.fromId(r.webContentsId) : null;
+      return [r, !wc || wc.isDestroyed() ? null : pageSeen(wc)];
+    }),
+  );
   for (const r of shown) {
     const name = attr(String(r.label || "").slice(0, 120));
     const where = r.place ? ` id="#${r.id}" at="${r.place.x},${r.place.y}" size="${r.place.w}×${r.place.h}"` : "";
@@ -847,22 +877,16 @@ async function describeNow(refs, thread) {
         continue;
       }
       if (r.kind === "browser") {
-        const wc = r.webContentsId ? webContents.fromId(r.webContentsId) : null;
-        if (!wc || wc.isDestroyed()) {
+        const got = await asked.get(r);
+        if (!got) {
           parts.push(`<page name="${name}"${where} address="${attr(r.url)}">(not loaded just now)</page>`);
           continue;
         }
-        const words = await Promise.race([wc.executeJavaScript("(document.body && document.body.innerText || '').slice(0, 12000)").catch(() => ""), new Promise((r) => setTimeout(() => r("(the page did not answer in time)"), 3000))]);
-        // (and what on it can be used, for weld click and weld type)
-        const can = String((await Promise.race([wc.executeJavaScriptInIsolatedWorld(WORLD, [{ code: CONTROLS }]).catch(() => ""), quietly(1500).then(() => "")])) ?? "").slice(0, 3000);
-        parts.push(`<page name="${name}"${where} address="${attr(wc.getURL())}" title="${attr(wc.getTitle())}">\n${esc(words)}\n${can ? `(can be used with weld click #${r.id}: ${esc(can)})\n` : ""}</page>`);
-        if (images.length < 4 || imagesAfresh.length < 4) {
-          const img = await Promise.race([wc.capturePage().catch(() => null), new Promise((r) => setTimeout(() => r(null), 3000))]);
-          if (img && !img.isEmpty()) {
-            const jpg = (img.getSize().width > 1600 ? img.resize({ width: 1600 }) : img).toJPEG(80).toString("base64");
-            if (images.length < 4) images.push(jpg);
-            if (imagesAfresh.length < 4) imagesAfresh.push(jpg);
-          }
+        const { url, title, words, can, jpg } = got;
+        parts.push(`<page name="${name}"${where} address="${attr(url)}" title="${attr(title)}">\n${esc(words)}\n${can ? `(can be used with weld click #${r.id}: ${esc(can)})\n` : ""}</page>`);
+        if (jpg) {
+          if (images.length < 4) images.push(jpg);
+          if (imagesAfresh.length < 4) imagesAfresh.push(jpg);
         }
       } else if (r.kind === "terminal") {
         const t = terminals.recent(r.id);
@@ -1270,6 +1294,8 @@ async function useNow(wc, p, thread, act) {
 
 /** How to take a still of each guest page, by its id. */
 const stills = new Map();
+/** The last still taken of each page (JPEG): what an agent is shown of a page that cannot be pictured just now. */
+const lastStill = new Map();
 /** Pages sleeping behind their still: no new still is taken of them until they wake. */
 const asleep = new Set();
 // A page on the board is a guest: it gets no access to this app, and a
@@ -1337,7 +1363,11 @@ app.on("web-contents-created", (_e, contents) => {
       changed = false;
       tookAt = Date.now();
       const img = await contents.capturePage();
-      if (!img.isEmpty()) send("browser:still", { from: contents.id, jpeg: img.toJPEG(84) });
+      if (!img.isEmpty()) {
+        const jpeg = img.toJPEG(84);
+        lastStill.set(contents.id, jpeg);
+        send("browser:still", { from: contents.id, jpeg });
+      }
     } catch {
       /* hidden or gone: the last still stands */
     }
@@ -1357,6 +1387,7 @@ app.on("web-contents-created", (_e, contents) => {
     clearInterval(beat);
     clearTimeout(timer);
     stills.delete(contents.id);
+    lastStill.delete(contents.id);
     asleep.delete(contents.id);
   });
 });
@@ -1656,6 +1687,7 @@ function wire() {
       test: TEST,
       agents: { claude: !!agentWhich("claude"), codex: !!agentWhich("codex") },
       settings: readJson(file("settings.json"), {}),
+      usedBefore: usedBefore(),
       models: { codex: codexModels() },
     };
   });
@@ -2014,16 +2046,29 @@ else {
   function leave() {
     if (leaving) return;
     leaving = true;
-    life?.ended(quitWhy || "quit (⌘Q, the menu or the Dock)");
-    terminals.shutdown();
-    acpListening?.close();
-    for (const o of [...watched.keys()]) unwatch(o);
-    acp?.close();
-    for (const d of lookDirs) rmSync(d, { recursive: true, force: true });
+    // (quitting always ends the app: one step that fails or hangs never leaves it running with no window, which the
+    // next open would only bring back windowless)
+    setTimeout(() => app.exit(0), 40000);
+    const step = (fn) => {
+      try {
+        return fn();
+      } catch (e) {
+        console.error("[quit]", e);
+      }
+    };
+    step(() => life?.ended(quitWhy || "quit (⌘Q, the menu or the Dock)"));
+    // (a check may break a step, to see that quitting still ends the app)
+    step(() => TEST && globalThis.__breakQuit && (() => { throw new Error("broken on purpose"); })());
+    step(() => terminals.shutdown());
+    step(() => acpListening?.close());
+    for (const o of [...watched.keys()]) step(() => unwatch(o));
+    step(() => acp?.close());
+    for (const d of lookDirs) step(() => rmSync(d, { recursive: true, force: true }));
     // what was said is written (briefly waited for); ACP agents are ended, and waited for longer: what they started must
     // not outlive the app (past 30 s, the record of their groups lets the next start end what it can)
-    const writing = Promise.race([threads.shutdown(), new Promise((ok) => setTimeout(ok, 3000))]);
-    const ending = Promise.race([threads.acpEnding(), new Promise((ok) => setTimeout(ok, 30000))]);
-    void Promise.all([writing, ending]).finally(() => app.quit());
+    const writing = Promise.race([Promise.resolve(step(() => threads.shutdown())), new Promise((ok) => setTimeout(ok, 3000))]);
+    const ending = Promise.race([Promise.resolve(step(() => threads.acpEnding())), new Promise((ok) => setTimeout(ok, 30000))]);
+    // (a check may hold the last step back, to see that the app still ends)
+    void Promise.all([writing, ending]).finally(() => !(TEST && globalThis.__holdQuit) && app.quit());
   }
 }
