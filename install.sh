@@ -22,8 +22,8 @@ set -eu
 REPO="MohamedH1998/weld"
 BUNDLE_ID="app.weld.mac"
 # The release this script installs, and the SHA-256 of its zip: written here at each release by scripts/pin-release.sh.
-VERSION="0.1.2"
-SHA256="c1b3bb7cc9b168ddb88d549733f1aa6c231b682da3254b61abee262e40cd250a"
+VERSION="0.1.3"
+SHA256="a0e2dc0f91748eea7fe6df46960a1c56d1a86ef83313bfdba97f971b4180f427"
 
 say() { printf '%s\n' "$*"; }
 fail() { say "weld: $*" >&2; exit 1; }
