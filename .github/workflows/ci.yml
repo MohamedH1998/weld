@@ -44,6 +44,8 @@ jobs:
       - run: node scripts/shot.mjs out/looks test/looks.mjs
       # quitting ends the app, even when a step of quitting throws or never ends
       - run: node test/quit.mjs
+      # notes the person leaves on a page a thread opened reach that thread
+      - run: node scripts/shot.mjs out/pagenotes test/pagenotes.mjs
 
   web:
     runs-on: ubuntu-latest
