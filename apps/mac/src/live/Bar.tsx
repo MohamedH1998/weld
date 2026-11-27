@@ -282,13 +282,17 @@ export const Bar = memo(function Bar({ editor, dark }: { editor: Editor; dark: b
               <div className="live-menu ui-in ask-menu" style={{ ["--from" as string]: "3px" }}>
                 {agentList(true)
                   .filter((a) => a.kind !== "flavor" || a.installed)
-                  .map((a) => (
-                    <button key={a.id} type="button" aria-current={agentId === a.id} disabled={!a.installed} onMouseDown={(e) => e.preventDefault()} onClick={() => choose({ agent: a.id })}>
-                      <AgentLogo id={a.id} />
-                      {a.name}
-                      <span className="sub">{a.installed ? subOf(a) : "not installed"}</span>
-                    </button>
-                  ))}
+                  .map((a) => {
+                    // (on this Mac but switched off: one press switches it on and picks it)
+                    const off = !a.installed && !!agentsFound().find((f) => f.id === a.id)?.installed;
+                    return (
+                      <button key={a.id} type="button" aria-current={agentId === a.id} disabled={!a.installed && !off} onMouseDown={(e) => e.preventDefault()} onClick={() => (off && enable(a.id), choose({ agent: a.id }))}>
+                        <AgentLogo id={a.id} />
+                        {a.name}
+                        <span className="sub">{a.installed ? subOf(a) : off ? "off: pick to turn on" : "not installed"}</span>
+                      </button>
+                    );
+                  })}
               </div>
             )}
             {menu === "model" && (

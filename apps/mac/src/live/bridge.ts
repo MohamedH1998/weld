@@ -164,7 +164,7 @@ export interface Weld {
   removeAgent: (id: string) => Promise<boolean>;
   /** T3 Code: whether it is on this Mac, and whether Weld is one of its agents; adding Weld to it, or taking it off. */
   t3: { state: () => Promise<{ installed: boolean; connected: boolean }>; connect: () => Promise<{ ok?: boolean; error?: string }>; disconnect: () => Promise<{ ok?: boolean; error?: string }> };
-  info: { envKnown?: boolean; home: string; dev: boolean; version: string; agents: Record<Agent, boolean>; settings: Settings; models?: { codex?: { id: string; name: string; sub?: string }[] }; seed?: boolean; test?: boolean; board?: { id: string; name: string; dir?: string | null } };
+  info: { envKnown?: boolean; home: string; dev: boolean; version: string; agents: Record<Agent, boolean>; settings: Settings; usedBefore?: boolean; models?: { codex?: { id: string; name: string; sub?: string }[] }; seed?: boolean; test?: boolean; board?: { id: string; name: string; dir?: string | null } };
   board: { load: () => { doc?: string; cam?: string } | null; save: (b: { doc: string | null; cam: string | null; board?: string; done?: string[] }) => Promise<boolean>; saveNow: (b: { doc: string | null; cam: string | null; board?: string; done?: string[] }) => boolean; keepAside: (board?: string) => void; threads: (ids: string[], ok: boolean, board?: string) => void };
   boards: {
     list: () => Promise<BoardEntry[]>;
@@ -254,11 +254,12 @@ export const home = () => weld.info.home;
 /** Where work starts when no folder was chosen for it: a new, empty folder of its own (never home, never whichever folder was used last). */
 /** Which agents are installed, asked of the app now and then (one installed after the window opened is found). */
 let agentsAt = 0, agentsWere: AgentInfo[] | null = null;
-/** Whether the person has switched an agent on. Someone who used Weld before agents had to be (a choice of agent remembered)
- *  keeps every one found, as before; a copy run by the checks has them all. */
+/** Whether the person has switched an agent on. Someone who used Weld before agents had to be (a choice of agent
+ *  remembered, or threads on the board) keeps every one found on, as before, until they switch one off; a copy run by the
+ *  checks has them all. */
 export function enabled(id: Agent): boolean {
   if (settings.enabled) return settings.enabled.includes(id);
-  return !!settings.agent || !!weld.info.test;
+  return !!settings.agent || !!weld.info.usedBefore || !!weld.info.test;
 }
 /** Switch an agent on (one press, in Settings or on the first board), and ask new things of it. */
 export function enable(id: Agent) {

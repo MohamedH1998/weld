@@ -72,7 +72,17 @@ export class Terminals {
     // a command it was opened to run is typed once the shell has drawn its first prompt, and only if it opened where it was meant to
     if (exec && run) t.out += `\x1b[2m$ ${String(run)}\x1b[0m\r\n`;
     let pending = !exec && run && (!cwd || dir === cwd) ? String(run) : null, settle = null;
-    p.onData((d) => {
+    // (what a terminal says arrives from outside JavaScript: if handling it ever threw, the whole app would abort, so it
+    // never does; and once the app is going, nothing more is handled)
+    const safe = (fn) => (...a) => {
+      if (this.down) return;
+      try {
+        fn(...a);
+      } catch (e) {
+        console.error("[terminal]", e);
+      }
+    };
+    p.onData(safe((d) => {
       t.out += d;
       if (t.out.length > KEEP) t.out = t.out.slice(-KEEP * 0.75);
       // The first of anything is sent on at once (a letter typed is echoed without waiting); what follows hard on it
@@ -80,7 +90,7 @@ export class Terminals {
       if (!t.sending) {
         this.emit(id, { t: "data", d });
         const more = () => {
-          if (!t.gulp) return void (t.sending = null);
+          if (this.down || !t.gulp) return void (t.sending = null);
           const all = t.gulp;
           t.gulp = "";
           this.emit(id, { t: "data", d: all });
@@ -100,8 +110,8 @@ export class Terminals {
         t.proc = proc;
         this.emit(id, { t: "proc", proc });
       }
-    });
-    p.onExit(({ exitCode }) => {
+    }));
+    p.onExit(safe(({ exitCode }) => {
       t.alive = false;
       t.code = exitCode;
       t.gone?.();
@@ -115,7 +125,7 @@ export class Terminals {
       t.alive = false;
       t.code = exitCode;
       this.emit(id, { t: "exit", code: exitCode });
-    });
+    }));
     return { replay: t.out, alive: true, proc: t.proc, fresh: true };
   }
   /** Start a command over: the one running is stopped (and waited for, so what it held, a port say, is free), then begun again, its earlier output kept. */
@@ -242,6 +252,7 @@ export class Terminals {
     }
   }
   shutdown() {
+    this.down = true;
     for (const id of [...this.all.keys()]) this.close(id);
   }
 }
