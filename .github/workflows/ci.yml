@@ -46,6 +46,8 @@ jobs:
       - run: node test/quit.mjs
       # notes the person leaves on a page a thread opened reach that thread
       - run: node scripts/shot.mjs out/pagenotes test/pagenotes.mjs
+      # weld open on a file that isn't there says so
+      - run: node scripts/shot.mjs out/openmissing test/openmissing.mjs
 
   web:
     runs-on: ubuntu-latest
