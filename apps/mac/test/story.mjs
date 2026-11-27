@@ -27,6 +27,15 @@ export default async ({ app, page, out, shot }) => {
   // the guide
   const g = weld(["guide"]);
   check("weld guide says how to draw, the notation, the helpers, the templates and the diagrams", /Drawing a diagram in Weld/.test(g) && /story notation/.test(g) && /segments = \(/.test(g) && /\n  strip /.test(g) && /lanes-handover/.test(g), g.slice(0, 200));
+  // (an agent that reads only the head of the guide still finds what to start a map, a board or findings from)
+  const head = g.split("\n").slice(0, 15).join("\n");
+  check("the guide's first lines say which template to start a map, a board of work or findings from", ["map", "layers", "tickets", "numbers"].every((k) => head.includes("`" + k + "`")), head);
+  for (const k of ["map", "layers", "tickets", "numbers"]) {
+    const line = weld(["guide", k]).split("\n").find((l) => l.startsWith('{"story"'));
+    let s = null;
+    try { s = JSON.parse(line ?? "").story; } catch {}
+    check(`weld guide ${k} prints a story with things in it`, !!s?.things?.length, (line ?? "").slice(0, 200));
+  }
   const t = weld(["guide", "strip"]);
   const json = t.slice(t.indexOf('{"story"'));
   let story;

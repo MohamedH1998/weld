@@ -80,6 +80,23 @@ function find(q: string): string {
   return [`The catalogue's closest diagrams (weld guide <name> prints one as a story to change and send):\n`, ...scored.map(({ e }) => `  ${e.name.padEnd(34)} ${e.subject}: ${e.shows}`), ""].join("\n");
 }
 
+/** The first thing `weld guide` says: what to start from for what the person asked, before the long guide (agents often read only its head). */
+const START = `# Start here
+
+Pick by what the person asked for, then run weld guide <template>: it prints a story to change and send with weld draw.
+
+| They asked for | Template |
+| --- | --- |
+| a map of a system or repo: what it is made of, what sits inside what (a mind map, an architecture) | \`map\` |
+| who calls what, top to bottom: people, apps, services, data | \`layers\` |
+| a board of work: tickets, tasks, a plan's progress, what is in review or done | \`tickets\` |
+| findings from data: the few numbers that matter | \`numbers\` (a level over time: \`curve\`; shares of one whole: \`bands\`) |
+| how something works, or what happens in turn | read on: the guide below, and its own table of templates |
+
+Maps, boards and findings are still pictures, not stories of one change: the rules below about one change and five things do not apply to them.
+Keep each one to what fits on a screen, drawn beside you; to change it later, send it again with "replace": "#id".
+`;
+
 /** What `weld guide [name]` says. */
 export function guide(name?: string): string {
   const n = (name ?? "").trim();
@@ -87,7 +104,7 @@ export function guide(name?: string): string {
   if (!n) {
     const temps = Object.keys(TEMPLATES).sort().map((k) => `  ${k.padEnd(10)} ${(HEADS[k] ?? "").split("\n")[0] ?? ""}`);
     const accepted = ACCEPTED.map((d) => `  ${d.slug.padEnd(22)} ${d.name}`);
-    return [GUIDE, NOTATION, "# The helpers\n", helpers(), "\n# Templates (weld guide <template> prints one as a story)\n", ...temps, "\n# Accepted diagrams (weld guide <name> prints one as a story)\n", ...accepted,
+    return [START, GUIDE, NOTATION, "# The helpers\n", helpers(), "\n# Templates (weld guide <template> prints one as a story)\n", ...temps, "\n# Accepted diagrams (weld guide <name> prints one as a story)\n", ...accepted,
       `\n# The catalogue (${ENTRIES.length} finished diagrams; weld guide find <words> lists the ones for a subject)\n`, [...new Set(ENTRIES.map((e) => e.subject))].join(" · "), ""].join("\n");
   }
   const t = TEMPLATES[n];

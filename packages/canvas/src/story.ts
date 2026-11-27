@@ -596,10 +596,11 @@ export function story(d0: { slug: string; name: string; about: string; things: T
       if (t.kind === "boundary") fences.push({ ...base, kind: "boundary", tone: "ink", ...(t.ground === "tint" || t.ground === "solid" ? { fill: t.ground } : {}), ...(t.ground === "hatch" || t.ground === "cross" ? { pattern: t.ground } : {}), text: t.text, size: 15, track: 0.14, pad: 24, fine: { line: "n300", w: Math.min(2, EDGEW), fill: "none", text: "n700", fw: 500, ...o(t.id) } } satisfies Box);
       else if (t.kind === "card") things.push({ ...base, kind: "card", ...(t.dashed ? { line: "dashed" as const } : {}), text: said[t.id] ?? t.text, size: 19, track: 0.04, fine: { line, w: EDGEW, fill: "paper", shadow: true, text: "n900", fw: 400, ...o(t.id) } } satisfies Box);
       else {
-        const head = HEAD[t.kind], pad = PAD[t.kind], panel = t.kind === "panel";
+        // (a name given a size of its own, a figure that is the news, stands in a header band twice as tall)
+        const head = t.size ? Math.max(HEAD[t.kind], Math.round(t.size * 2)) : HEAD[t.kind], pad = PAD[t.kind], panel = t.kind === "panel";
         // a mark drawn inside it (a gauge, a queue…) goes under the detail line, which then stands at the top of the body
         // a colour of its own (red, green, amber) is the thing's outline, lamp and detail: the reference blue would hide it
-        things.push({ ...base, kind: t.kind, text: t.text, size: 15, track: 0.16, head, pad, fine: hue
+        things.push({ ...base, kind: t.kind, text: t.text, size: t.size ?? 15, track: t.size ? 0.02 : 0.16, head, pad, fine: hue
           ? { w: EDGEW, fill: "paper", shadow: true, text: "n900", fw: panel ? 500 : 400, ...o(t.id) }
           : { line, w: EDGEW, fill: "paper", shadow: true, text: lit && panel ? "accent" : "n700", fw: panel ? 500 : 400, ...(panel ? { lamp: lit ? ("accent" as const) : ("n400" as const) } : {}), ...o(t.id) } } satisfies Box);
         const detail = said[t.id];

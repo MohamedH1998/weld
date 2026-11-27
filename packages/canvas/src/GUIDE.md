@@ -2,6 +2,7 @@
 
 A diagram here is a small picture of **one thing changing**. It is not a map of components.
 Left to themselves, people and agents draw the map: boxes in a row, joined by arrows. Follow this instead.
+(When the person asks for a map, a board of work or findings, that is what to draw: start from `map`, `layers`, `tickets` or `numbers`, as "Start here" says.)
 
 ## 1. Say the change in one sentence
 

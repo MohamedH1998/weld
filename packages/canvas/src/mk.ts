@@ -130,6 +130,13 @@ export const leader = (id: string, a: string, b: string, o: Partial<Omit<Link, "
 export const pointTo = (id: string, a: string, b: string, ax: number, ay: number): Link => ({ ...leader(id, a, b), b: [b, ax, ay] });
 /** A sentence under a picture. */
 export const caption = (id: string, x: number, y: number, text: string): Thing => ({ ...label(id, x, y, text), plain: true });
+/** A number that is the news: `figure` large ("71%", "6,899"), what it counts under it, and, when `value` is given, how much of its whole it is (0 to 1) as a plain bar along the bottom (its id is `id` + "-bar"). */
+export const stat = (id: string, x: number, y: number, figure: string, words: string, value?: number, w = 260): Thing[] => [
+  { ...panel(id, x, y, figure, words, w, 150), size: 32 },
+  ...(value === undefined ? [] : [gauge(id + "-bar", x + 16, y + 120, "", value, w - 32, 10)]),
+];
+/** A piece of work on a board: its reference ("#59", "ACME-12") over what it is. Tone it to say where it stands: green done, blue in hand, amber waiting on someone, red stuck. */
+export const ticket = (id: string, x: number, y: number, ref: string, title: string, w = 250, h = 96): Thing => panel(id, x, y, ref, title, w, h);
 
 // the motifs (see DIAGRAMS.md, "Motifs"): one call each
 /** Where wires meet and branch, centred on (x, y): fan out from it, or gather into it. */
