@@ -6,7 +6,7 @@ import { createHash } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import { execFile } from "node:child_process";
 import { createHmac, randomBytes } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync, watch } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync, watch } from "node:fs";
 import { readdir } from "node:fs/promises";
 import http from "node:http";
 import os from "node:os";
@@ -48,6 +48,15 @@ function readJson(p, fallback) {
     return JSON.parse(readFileSync(p, "utf8"));
   } catch {
     return fallback;
+  }
+}
+/** Whether this Weld was used before agents had to be switched on: it has threads. Every agent found stays on for it, as
+ *  it always was, until the person switches one off. */
+function usedBefore() {
+  try {
+    return readdirSync(file("threads")).some((f) => f.endsWith(".json") || f.endsWith(".log"));
+  } catch {
+    return false;
   }
 }
 /** Written beside the real file and moved over it, so a crash mid-write never leaves half a file. */
@@ -1643,6 +1652,7 @@ function wire() {
       test: TEST,
       agents: { claude: !!agentWhich("claude"), codex: !!agentWhich("codex") },
       settings: readJson(file("settings.json"), {}),
+      usedBefore: usedBefore(),
       models: { codex: codexModels() },
     };
   });
