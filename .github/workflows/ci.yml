@@ -40,6 +40,8 @@ jobs:
       - run: WELD_SEED=0 node scripts/shot.mjs out/reader test/reader.mjs
       # a drawing that plays, stepped through with its conversation picked too, stays its agent's to redraw
       - run: node scripts/shot.mjs out/moments test/moments.mjs
+      # quitting ends the app, even when a step of quitting throws or never ends
+      - run: node test/quit.mjs
 
   web:
     runs-on: ubuntu-latest
