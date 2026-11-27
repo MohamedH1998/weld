@@ -164,9 +164,22 @@ function openDoor() {
         if (!url) return done(400, "usage: weld open <address>\n");
         if (/^(localhost|127\.0\.0\.1)(:|\/|$)/.test(url)) url = `http://${url}`;
         else if (/^\d{2,5}$/.test(url)) url = `http://localhost:${url}`;
-        else if (/^file:\/\//i.test(url)) url = fromFileUrl(url);
-        else if (!/^[a-z]+:\/\//i.test(url)) {
+        else if (/^file:\/\//i.test(url)) {
+          // (a file that isn't there is said so, not opened as a page that says "not found")
+          let abs = "";
+          try {
+            abs = decodeURIComponent(new URL(url).pathname);
+          } catch {
+            /* not an address */
+          }
+          if (!abs || !existsSync(abs)) return done(400, `weld: there is no file at ${abs || url}\n`);
+          url = fromFileUrl(url);
+        } else if (!/^[a-z]+:\/\//i.test(url)) {
           const abs = path.resolve(cwd || ".", url);
+          // (a path, not a web address: one that isn't there is said so)
+          const first = url.split(/[/?#]/)[0];
+          const isPath = /^[./~]/.test(url) || !first.includes(".") || /\.(html?|svg|png|jpe?g|gif|webp|pdf|md|txt|json)$/i.test(first);
+          if (!existsSync(abs) && isPath) return done(400, `weld: there is no file at ${abs}\n`);
           // a picture on disk is put on the board as a picture (an SVG the agent then edits is shown again as it changes)
           if (existsSync(abs) && assets.isPicture(abs)) {
             const a = assets.importPath(abs);
