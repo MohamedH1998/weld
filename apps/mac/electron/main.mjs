@@ -50,38 +50,16 @@ function readJson(p, fallback) {
     return fallback;
   }
 }
-/** Written beside the real file and moved over it, so a crash mid-write never leaves half a file. */
-/** The remembered choices. One that has never said which agents are on (a Weld that had threads before agents had to
- *  be switched on, or whose choice was never written) takes them to be the ones its threads already run on: an agent a
- *  thread is working with is never shown as off, nor new threads left with nothing to start on. */
-function settingsNow() {
-  const s = readJson(file("settings.json"), {});
-  if (Array.isArray(s.enabled) || s.agent) return s;
-  const used = [];
+/** Whether this Weld was used before agents had to be switched on: it has threads. Every agent found stays on for it, as
+ *  it always was, until the person switches one off. */
+function usedBefore() {
   try {
-    // (a thread is kept whole in its .json, and what changed since in its .log, line by line)
-    const add = (a) => typeof a === "string" && a && !used.includes(a) && used.push(a);
-    for (const f of readdirSync(file("threads"))) {
-      if (f.endsWith(".json")) add(readJson(file("threads", f), null)?.meta?.agent);
-      else if (f.endsWith(".log"))
-        for (const line of readFileSync(file("threads", f), "utf8").split("\n")) {
-          if (!line.includes('"agent"')) continue;
-          try {
-            const o = JSON.parse(line);
-            add(o?.meta?.agent);
-          } catch {
-            /* a line cut short */
-          }
-        }
-    }
+    return readdirSync(file("threads")).some((f) => f.endsWith(".json") || f.endsWith(".log"));
   } catch {
-    /* no threads yet */
+    return false;
   }
-  if (!used.length) return s;
-  const next = { ...s, enabled: used, agent: used.includes("claude") ? "claude" : used[0] };
-  writeJson(file("settings.json"), next);
-  return next;
 }
+/** Written beside the real file and moved over it, so a crash mid-write never leaves half a file. */
 function writeJson(p, value) {
   mkdirSync(path.dirname(p), { recursive: true });
   const tmp = `${p}.${process.pid}.tmp`;
@@ -1673,7 +1651,8 @@ function wire() {
       seed: TEST && process.env.WELD_SEED === "1",
       test: TEST,
       agents: { claude: !!agentWhich("claude"), codex: !!agentWhich("codex") },
-      settings: settingsNow(),
+      settings: readJson(file("settings.json"), {}),
+      usedBefore: usedBefore(),
       models: { codex: codexModels() },
     };
   });
