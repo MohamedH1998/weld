@@ -2033,16 +2033,29 @@ else {
   function leave() {
     if (leaving) return;
     leaving = true;
-    life?.ended(quitWhy || "quit (⌘Q, the menu or the Dock)");
-    terminals.shutdown();
-    acpListening?.close();
-    for (const o of [...watched.keys()]) unwatch(o);
-    acp?.close();
-    for (const d of lookDirs) rmSync(d, { recursive: true, force: true });
+    // (quitting always ends the app: one step that fails or hangs never leaves it running with no window, which the
+    // next open would only bring back windowless)
+    setTimeout(() => app.exit(0), 40000);
+    const step = (fn) => {
+      try {
+        return fn();
+      } catch (e) {
+        console.error("[quit]", e);
+      }
+    };
+    step(() => life?.ended(quitWhy || "quit (⌘Q, the menu or the Dock)"));
+    // (a check may break a step, to see that quitting still ends the app)
+    step(() => TEST && globalThis.__breakQuit && (() => { throw new Error("broken on purpose"); })());
+    step(() => terminals.shutdown());
+    step(() => acpListening?.close());
+    for (const o of [...watched.keys()]) step(() => unwatch(o));
+    step(() => acp?.close());
+    for (const d of lookDirs) step(() => rmSync(d, { recursive: true, force: true }));
     // what was said is written (briefly waited for); ACP agents are ended, and waited for longer: what they started must
     // not outlive the app (past 30 s, the record of their groups lets the next start end what it can)
-    const writing = Promise.race([threads.shutdown(), new Promise((ok) => setTimeout(ok, 3000))]);
-    const ending = Promise.race([threads.acpEnding(), new Promise((ok) => setTimeout(ok, 30000))]);
-    void Promise.all([writing, ending]).finally(() => app.quit());
+    const writing = Promise.race([Promise.resolve(step(() => threads.shutdown())), new Promise((ok) => setTimeout(ok, 3000))]);
+    const ending = Promise.race([Promise.resolve(step(() => threads.acpEnding())), new Promise((ok) => setTimeout(ok, 30000))]);
+    // (a check may hold the last step back, to see that the app still ends)
+    void Promise.all([writing, ending]).finally(() => !(TEST && globalThis.__holdQuit) && app.quit());
   }
 }

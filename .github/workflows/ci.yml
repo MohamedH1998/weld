@@ -42,6 +42,8 @@ jobs:
       - run: node scripts/shot.mjs out/moments test/moments.mjs
       # many pages open beside a conversation: weld look answers in good time, with every page in it
       - run: node scripts/shot.mjs out/looks test/looks.mjs
+      # quitting ends the app, even when a step of quitting throws or never ends
+      - run: node test/quit.mjs
 
   web:
     runs-on: ubuntu-latest
